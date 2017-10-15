@@ -54,6 +54,7 @@ static struct {
 	bool		unmountable;
 } fstypes[] = {
 	{ "hammer", &fstyp_hammer, false },
+	{ "hammer2", &fstyp_hammer2, false },
 	{ NULL, NULL, NULL }
 };
 
@@ -64,6 +65,7 @@ static struct {
 } fsvtypes[] = {
 	{ "hammer", &fsvtyp_hammer, false }, /* Must be before partial */
 	{ "hammer(partial)", &fsvtyp_hammer_partial, true },
+	// XXX hammer2 not supported yet
 	{ NULL, NULL, NULL }
 };
 

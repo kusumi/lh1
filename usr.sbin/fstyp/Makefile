@@ -1,6 +1,6 @@
 PROG=	fstyp
 
-SRCS=	$(PROG).c hammer.c
+SRCS=	$(PROG).c hammer.c hammer2.c
 
 OBJS := $(SRCS:.c=.o)
 

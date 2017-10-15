@@ -74,7 +74,7 @@
 // XXX Add "lh1". linux/sysctl.h has "unsigned long __unused[4];".
 #define __lh1_unused	__attribute__((unused))
 
-#define LH1_VERSION_STRING	"v0.1.1"
+#define LH1_VERSION_STRING	"v0.1.2"
 
 #define HAMMER_BUFLISTS		64
 #define HAMMER_BUFLISTMASK	(HAMMER_BUFLISTS - 1)

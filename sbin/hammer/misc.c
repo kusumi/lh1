@@ -377,11 +377,11 @@ is_le(void)
 	return(u.c[0] == 0x78);
 }
 
-// XXX
 char *
-getmntdir(const char *path) {
+getmntdir(const char *path)
+{
 	struct mntent *mnt;
-	FILE *mtab;
+	FILE *fp;
 	char *f;
 	static char s[PATH_MAX];
 
@@ -400,22 +400,22 @@ getmntdir(const char *path) {
 		return(s);
 	}
 
-	mtab = setmntent("/proc/mounts", "r");
-	if (mtab == NULL)
+	fp = setmntent("/proc/mounts", "r");
+	if (fp == NULL)
 		return(NULL);
 
 	strcpy(s, "/");
-	while ((mnt = getmntent(mtab)) != NULL) {
+	while ((mnt = getmntent(fp)) != NULL) {
 		const char *mnt_dir = mnt->mnt_dir;
 		int i = 0;
 
 		if (strcmp(f, mnt_dir) == 0) {
-			strcpy(s, mnt_dir);
+			strncpy(s, mnt_dir, sizeof(s) - 1);
 			break;
 		}
 		while (i < strlen(f)) {
 			if (mnt_dir[i] == '\0' && strlen(mnt_dir) > strlen(s)) {
-				strcpy(s, mnt_dir);
+				strncpy(s, mnt_dir, sizeof(s) - 1);
 				break;
 			} else if (f[i] == mnt_dir[i]) {
 				i++;
@@ -423,7 +423,7 @@ getmntdir(const char *path) {
 				break;
 		}
 	}
-	endmntent(mtab);
+	endmntent(fp);
 
 	return(s);
 }

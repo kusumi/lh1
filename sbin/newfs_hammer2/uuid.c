@@ -32,10 +32,13 @@
  * SUCH DAMAGE.
  */
 
-#include "hammer_util.h"
-
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
 #include <byteswap.h>
 #include <uuid/uuid.h>
+
+#include "./util.h"
 
 /*
  * See also:
@@ -61,12 +64,12 @@ void __uuid_swap(struct __uuid *p)
 	p->time_hi_and_version = bswap_16(p->time_hi_and_version);
 }
 
-void hammer_uuid_create(hammer_uuid_t *uuid)
+void hammer2_uuid_create(hammer2_uuid_t *uuid)
 {
 	uuid_generate(uuid->uuid);
 }
 
-int hammer_uuid_from_string(const char *str, hammer_uuid_t *uuid)
+int hammer2_uuid_from_string(const char *str, hammer2_uuid_t *uuid)
 {
 	if (uuid_parse(str, uuid->uuid))
 		return(-1);
@@ -76,7 +79,7 @@ int hammer_uuid_from_string(const char *str, hammer_uuid_t *uuid)
 	return(0);
 }
 
-int hammer_uuid_to_string(const hammer_uuid_t *uuid, char **str)
+int hammer2_uuid_to_string(const hammer2_uuid_t *uuid, char **str)
 {
 	struct __uuid u;
 
@@ -89,16 +92,10 @@ int hammer_uuid_to_string(const hammer_uuid_t *uuid, char **str)
 	return(0);
 }
 
-/*
- * Taken from etc/defaults/uuids.
- * 61dc63ac-6e38-11dc-8513-01301bb8a9f5    "DragonFly HAMMER"
- */
-#define HAMMER_FSTYPE_UUID "61dc63ac-6e38-11dc-8513-01301bb8a9f5"
-
-int hammer_uuid_name_lookup(hammer_uuid_t *uuid, const char *str)
+int hammer2_uuid_name_lookup(hammer2_uuid_t *uuid, const char *str)
 {
-	if (strcmp(str, HAMMER_FSTYPE_STRING) ||
-	    hammer_uuid_from_string(HAMMER_FSTYPE_UUID, uuid)) {
+	if (strcmp(str, "DragonFly HAMMER2") ||
+	    hammer2_uuid_from_string(HAMMER2_UUID_STRING, uuid)) {
 		memset(uuid, 0, sizeof(*uuid));
 		return(-1);
 	}
@@ -106,7 +103,7 @@ int hammer_uuid_name_lookup(hammer_uuid_t *uuid, const char *str)
 	return(0);
 }
 
-int hammer_uuid_compare(const hammer_uuid_t *uuid1, const hammer_uuid_t *uuid2)
+int hammer2_uuid_compare(const hammer2_uuid_t *uuid1, const hammer2_uuid_t *uuid2)
 {
 	return(uuid_compare(uuid1->uuid, uuid2->uuid));
 }

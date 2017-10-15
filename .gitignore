@@ -19,6 +19,7 @@ core*
 sbin/hammer/hammer
 sbin/hammer/test_dupkey
 sbin/newfs_hammer/newfs_hammer
+sbin/newfs_hammer2/newfs_hammer2
 usr.bin/undo/undo
 usr.sbin/fstyp/fstyp
 
