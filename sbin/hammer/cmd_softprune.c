@@ -406,7 +406,7 @@ static
 struct softprune *
 hammer_softprune_addentry(struct softprune **basep,
 			 struct hammer_ioc_prune *template,
-			 const char *dirpath, const char *denname __lh1_unused,
+			 const char *dirpath, const char *denname __unused,
 			 struct stat *st,
 			 const char *linkbuf, const char *tidptr)
 {

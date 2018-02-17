@@ -38,6 +38,7 @@
 
 #include <stdint.h>
 #include <sys/dmsg.h>
+#include <sys/dfly.h>
 #include <uuid/uuid.h>
 
 /*
@@ -508,7 +509,7 @@ struct hammer2_volconf {
 	hammer2_uuid_t pfs_clid;	/* 20-2F copy target must match this uuid */
 	uint8_t label[16];	/* 30-3F import/export label */
 	uint8_t path[64];	/* 40-7F target specification string or key */
-} __attribute__ ((__packed__));
+} __packed;
 
 typedef struct hammer2_volconf hammer2_volconf_t;
 
@@ -525,7 +526,7 @@ struct dmsg_lnk_hammer2_volconf {
 	int32_t			unused01;
 	hammer2_uuid_t		mediaid;
 	int64_t			reserved02[32];
-} __attribute__ ((__packed__));
+} __packed;
 
 typedef struct dmsg_lnk_hammer2_volconf dmsg_lnk_hammer2_volconf_t;
 
@@ -543,7 +544,7 @@ struct hammer2_dirent_head {
 	uint8_t			type;		/* OBJTYPE_*	*/
 	uint8_t			unused0B;
 	uint8_t			unused0C[4];
-} __attribute__ ((__packed__));
+} __packed;
 
 typedef struct hammer2_dirent_head hammer2_dirent_head_t;
 
@@ -685,7 +686,7 @@ struct hammer2_blockref {		/* MUST BE EXACTLY 64 BYTES */
 			char reserved[48];
 		} freemap;
 	} check;
-} __attribute__ ((__packed__));
+} __packed;
 
 typedef struct hammer2_blockref hammer2_blockref_t;
 
@@ -861,7 +862,7 @@ struct hammer2_bmap_data {
 	uint32_t reserved20[8];	/* 20-3F 256 bits manages 128K/1KB/2-bits */
 				/* 40-7F 512 bits manages 4MB of storage */
 	hammer2_bitmap_t bitmapq[HAMMER2_BMAP_ELEMENTS];
-} __attribute__ ((__packed__));
+} __packed;
 
 typedef struct hammer2_bmap_data hammer2_bmap_data_t;
 
@@ -1006,7 +1007,7 @@ struct hammer2_inode_meta {
 	 */
 	uint64_t	decrypt_check;	/* 00E0 decryption validator */
 	hammer2_off_t	reservedE0[3];	/* 00E8/F0/F8 */
-} __attribute__ ((__packed__));
+} __packed;
 
 typedef struct hammer2_inode_meta hammer2_inode_meta_t;
 
@@ -1018,7 +1019,7 @@ struct hammer2_inode_data {
 		struct hammer2_blockset blockset;
 		char data[HAMMER2_EMBEDDED_BYTES];
 	} u;
-} __attribute__ ((__packed__));
+} __packed;
 
 typedef struct hammer2_inode_data hammer2_inode_data_t;
 
@@ -1294,7 +1295,7 @@ struct hammer2_volume_data {
 	 * icrc on entire volume header
 	 */
 	hammer2_crc32_t	icrc_volheader;		/* FFFC-FFFF full volume icrc*/
-} __attribute__ ((__packed__));
+} __packed;
 
 typedef struct hammer2_volume_data hammer2_volume_data_t;
 
@@ -1337,7 +1338,7 @@ union hammer2_media_data {
 	hammer2_blockref_t	npdata[HAMMER2_IND_COUNT_MAX];
 	hammer2_bmap_data_t	bmdata[HAMMER2_FREEMAP_COUNT];
 	char			buf[HAMMER2_PBUFSIZE];
-} __attribute__ ((__packed__));
+} __packed;
 
 typedef union hammer2_media_data hammer2_media_data_t;
 

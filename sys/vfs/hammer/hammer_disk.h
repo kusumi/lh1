@@ -38,6 +38,7 @@
 #define VFS_HAMMER_DISK_H_
 
 #include <stdint.h>
+#include <sys/dfly.h>
 #include <uuid/uuid.h>
 
 /*
@@ -1015,7 +1016,7 @@ struct hammer_pseudofs_data {
 	int32_t		prune_min;	/* do not prune recent history */
 	int32_t		prune_max;	/* do not retain history beyond here */
 	int32_t		reserved[16];
-} __attribute__ ((__packed__));
+} __packed;
 
 typedef struct hammer_pseudofs_data *hammer_pseudofs_data_t;
 

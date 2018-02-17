@@ -397,14 +397,14 @@ hammer_cmd_dedup(char **av, int ac)
 
 static
 int
-count_btree_elm(hammer_btree_leaf_elm_t scan_leaf __lh1_unused, int flags __lh1_unused)
+count_btree_elm(hammer_btree_leaf_elm_t scan_leaf __unused, int flags __unused)
 {
 	return(1);
 }
 
 static
 int
-collect_btree_elm(hammer_btree_leaf_elm_t scan_leaf, int flags __lh1_unused)
+collect_btree_elm(hammer_btree_leaf_elm_t scan_leaf, int flags __unused)
 {
 	struct sim_dedup_entry *sim_de;
 
@@ -849,14 +849,14 @@ done:
 
 static
 void
-sigAlrm(int signo __lh1_unused)
+sigAlrm(int signo __unused)
 {
 	SigAlrmFlag = 1;
 }
 
 static
 void
-sigInfo(int signo __lh1_unused)
+sigInfo(int signo __unused)
 {
 	SigInfoFlag = 1;
 }

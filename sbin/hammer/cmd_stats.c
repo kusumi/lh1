@@ -34,9 +34,9 @@
  * $DragonFly: src/sbin/hammer/cmd_stats.c,v 1.3 2008/07/14 20:28:07 dillon Exp $
  */
 
+#include <sys/sysctl.h> // before <sys/dfly.h>
 #include "hammer.h"
 
-#include <sys/sysctl.h>
 #include <math.h>
 
 static void loaddelay(struct timespec *ts, const char *arg);

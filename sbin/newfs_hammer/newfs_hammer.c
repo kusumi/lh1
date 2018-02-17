@@ -32,9 +32,9 @@
  * SUCH DAMAGE.
  */
 
+#include <sys/sysctl.h> // before <sys/dfly.h>
 #include "hammer_util.h"
 
-#include <sys/sysctl.h>
 #include <linux/fs.h>
 
 static int64_t getsize(const char *str, int pw);

@@ -53,7 +53,7 @@
 #include <sys/file.h>
 
 void
-hammer_cmd_abort_cleanup(char **av __lh1_unused, int ac __lh1_unused)
+hammer_cmd_abort_cleanup(char **av __unused, int ac __unused)
 {
 	DIR *dir;
 	pid_t pid;

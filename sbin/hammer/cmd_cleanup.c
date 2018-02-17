@@ -1069,7 +1069,7 @@ create_snapshot(const char *path, const char *snapshots_path)
 static
 int
 cleanup_prune(const char *path, const char *snapshots_path,
-		  int arg1 __lh1_unused, int arg2, int snapshots_disabled)
+		  int arg1 __unused, int arg2, int snapshots_disabled)
 {
 	const char *path_or_snapshots_path;
 
@@ -1106,7 +1106,7 @@ cleanup_prune(const char *path, const char *snapshots_path,
 static
 int
 cleanup_rebalance(const char *path, const char *snapshots_path,
-		  int arg1 __lh1_unused, int arg2)
+		  int arg1 __unused, int arg2)
 {
 	if (VerboseOpt == 0) {
 		printf(".");
@@ -1128,7 +1128,7 @@ cleanup_rebalance(const char *path, const char *snapshots_path,
 static
 int
 cleanup_reblock(const char *path, const char *snapshots_path,
-		  int arg1 __lh1_unused, int arg2)
+		  int arg1 __unused, int arg2)
 {
 	if (VerboseOpt == 0) {
 		printf(".");
@@ -1185,7 +1185,7 @@ cleanup_reblock(const char *path, const char *snapshots_path,
 static
 int
 cleanup_recopy(const char *path, const char *snapshots_path,
-		  int arg1 __lh1_unused, int arg2)
+		  int arg1 __unused, int arg2)
 {
 	if (VerboseOpt == 0) {
 		printf(".");
@@ -1222,8 +1222,8 @@ cleanup_recopy(const char *path, const char *snapshots_path,
 
 static
 int
-cleanup_dedup(const char *path, const char *snapshots_path __lh1_unused,
-		  int arg1 __lh1_unused, int arg2)
+cleanup_dedup(const char *path, const char *snapshots_path __unused,
+		  int arg1 __unused, int arg2)
 {
 	if (VerboseOpt == 0) {
 		printf(".");

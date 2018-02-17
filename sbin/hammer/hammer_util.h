@@ -38,13 +38,14 @@
 #define _GNU_SOURCE // asprintf
 
 #include <sys/types.h>
-#include <sys/stat.h>
+#include <sys/stat.h> // before <sys/dfly.h>
 #include <sys/statfs.h>
 #include <sys/time.h>
 #include <sys/queue.h>
 #include <sys/mount.h>
 #include <sys/wait.h>
 #include <sys/ioctl.h>
+#include <sys/dfly.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -70,11 +71,6 @@
 
 #include "../lib/libc/gen/util.h"
 #include "../sys/libkern/util.h"
-
-// XXX Add "lh1". linux/sysctl.h has "unsigned long __unused[4];".
-#define __lh1_unused	__attribute__((unused))
-
-#define LH1_VERSION_STRING	"v0.1.2"
 
 #define HAMMER_BUFLISTS		64
 #define HAMMER_BUFLISTMASK	(HAMMER_BUFLISTS - 1)

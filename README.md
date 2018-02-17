@@ -1,7 +1,9 @@
-lh1 - Linux HAMMER (v0.1.2)
+lh1 - Linux HAMMER (v0.1.3)
 ===
 
 ## Changes
+
++ 2018.02.17 / v0.1.3 - Sync with DragonFly BSD.
 
 + 2017.10.12 / v0.1.2 - HAMMER2 sbin/newfs_hammer2 added.
 
