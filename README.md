@@ -1,7 +1,9 @@
-lh1 - Linux HAMMER (v0.1.3)
+lh1 - Linux HAMMER (v0.1.4)
 ===
 
 ## Changes
+
++ 2018.06.17 / v0.1.4 - Sync with DragonFly BSD.
 
 + 2018.02.17 / v0.1.3 - Sync with DragonFly BSD.
 

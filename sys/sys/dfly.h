@@ -38,7 +38,7 @@
 
 #include <sys/cdefs.h>
 
-#define LH1_VERSION_STRING	"v0.1.3"
+#define LH1_VERSION_STRING	"v0.1.4"
 
 #if __GNUC_PREREQ(2, 7)
 /*
