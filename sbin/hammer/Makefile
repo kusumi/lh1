@@ -23,3 +23,11 @@ $(PROG2): $(OBJS2) ../../sys/libkern/
 	$(CC) $(CFLAGS) -c $<
 clean:
 	rm -f ./*.o ./$(PROG1) ./$(PROG2)
+install:
+	install -m 755 ./${PROG1} /usr/local/bin/ || exit 1
+	cat ./${PROG1}.8 | gzip -9 -n > ./${PROG1}.8.gz || exit 1
+	install -m 644 ./${PROG1}.8.gz /usr/local/share/man/man8/ || exit 1
+	rm ./${PROG1}.8.gz || exit 1
+uninstall:
+	rm /usr/local/bin/${PROG1} || exit 1
+	rm /usr/local/share/man/man8/${PROG1}.8.gz || exit 1

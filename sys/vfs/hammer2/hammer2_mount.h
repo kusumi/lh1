@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017 The DragonFly Project.  All rights reserved.
+ * Copyright (c) 2011-2018 The DragonFly Project.  All rights reserved.
  *
  * This code is derived from software contributed to The DragonFly Project
  * by Matthew Dillon <dillon@backplane.com>
@@ -32,18 +32,27 @@
  * SUCH DAMAGE.
  */
 
-#ifndef LIBC_GEN_UTIL_H_
-#define LIBC_GEN_UTIL_H_
+#ifndef _VFS_HAMMER2_MOUNT_H_
+#define _VFS_HAMMER2_MOUNT_H_
 
-#include <sys/types.h>
+/*
+ * This structure is passed from userland to the kernel during the mount
+ * system call.
+ *
+ * The volume name is formatted as '/dev/ad0s1a@LABEL', where the label is
+ * the mount point under the super-root.
+ */
+struct hammer2_mount_info {
+	const char	*volume;
+	int		hflags;		/* extended hammer2 mount flags */
+	int		cluster_fd;	/* cluster management pipe/socket */
+	char		reserved1[112];
+};
 
-#define GETDEVPATH_RAWDEV	0x0001
+#define HMNT2_NOAUTOSNAP	0x00000001
+#define HMNT2_LOCAL		0x00000002
 
-#define _PATH_DEVTAB_PATHS \
-	"/usr/local/etc:/etc:/etc/defaults"
+#define HMNT2_USERFLAGS		(HMNT2_NOAUTOSNAP | HMNT2_LOCAL)
+#define HMNT2_DEVFLAGS		(HMNT2_LOCAL)
 
-char *getdevpath(const char *devname, int flags);
-int sysctlbyname(const char *name, void *oldp, size_t *oldlenp,
-		const void *newp, size_t newlen);
-
-#endif /* !LIBC_GEN_UTIL_H_ */
+#endif

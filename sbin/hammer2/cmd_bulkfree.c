@@ -1,8 +1,8 @@
 /*
- * Copyright (c) 2017 The DragonFly Project.  All rights reserved.
+ * Copyright (c) 2015 The DragonFly Project.  All rights reserved.
  *
  * This code is derived from software contributed to The DragonFly Project
- * by Matthew Dillon <dillon@backplane.com>
+ * by Matthew Dillon <dillon@dragonflybsd.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -32,18 +32,61 @@
  * SUCH DAMAGE.
  */
 
-#ifndef LIBC_GEN_UTIL_H_
-#define LIBC_GEN_UTIL_H_
+#include "hammer2.h"
 
-#include <sys/types.h>
+int
+cmd_bulkfree(const char *sel_path)
+{
+	hammer2_ioc_bulkfree_t bfi;
+	int ecode;
+	int fd;
+	int res;
+	size_t usermem;
+	size_t usermem_size = sizeof(usermem);
 
-#define GETDEVPATH_RAWDEV	0x0001
+	bzero(&bfi, sizeof(bfi));
+	usermem = 0;
+	if (sysctlbyname("hw.usermem", &usermem, &usermem_size, NULL, 0) == 0)
+		bfi.size = usermem / 16;
+	else
+		bfi.size = 0;
+	if (bfi.size < 8192 * 1024)
+		bfi.size = 8192 * 1024;
 
-#define _PATH_DEVTAB_PATHS \
-	"/usr/local/etc:/etc:/etc/defaults"
+	if (MemOpt)
+		bfi.size = (MemOpt + 8192 * 1024 - 1) & ~(8192 * 1024 - 1L);
 
-char *getdevpath(const char *devname, int flags);
-int sysctlbyname(const char *name, void *oldp, size_t *oldlenp,
-		const void *newp, size_t newlen);
+	if ((fd = hammer2_ioctl_handle(sel_path)) < 0)
+		return 1;
+	res = ioctl(fd, HAMMER2IOC_BULKFREE_SCAN, &bfi);
+	if (res) {
+		perror("ioctl");
+		ecode = 1;
+	}
+	ecode = 0;
+	return ecode;
+}
 
-#endif /* !LIBC_GEN_UTIL_H_ */
+#if 0
+int
+cmd_bulkfree_async(const char *sel_path)
+{
+	hammer2_ioc_bulkfree_t bfi;
+	int ecode;
+	int fd;
+	int res;
+
+	bzero(&bfi, sizeof(bfi));
+	bfi.size = 8192 * 1024;
+
+	if ((fd = hammer2_ioctl_handle(sel_path)) < 0)
+		return 1;
+	res = ioctl(fd, HAMMER2IOC_BULKFREE_ASYNC, &bfi);
+	if (res) {
+		perror("ioctl");
+		ecode = 1;
+	}
+	ecode = 0;
+	return ecode;
+}
+#endif

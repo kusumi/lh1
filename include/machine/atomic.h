@@ -1,0 +1,1 @@
+../../sys/cpu/x86_64/include/atomic.h

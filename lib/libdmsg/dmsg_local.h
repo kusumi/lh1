@@ -1,8 +1,8 @@
 /*
- * Copyright (c) 2017 The DragonFly Project.  All rights reserved.
+ * Copyright (c) 2011-2012 The DragonFly Project.  All rights reserved.
  *
  * This code is derived from software contributed to The DragonFly Project
- * by Matthew Dillon <dillon@backplane.com>
+ * by Matthew Dillon <dillon@dragonflybsd.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -32,18 +32,40 @@
  * SUCH DAMAGE.
  */
 
-#ifndef LIBC_GEN_UTIL_H_
-#define LIBC_GEN_UTIL_H_
-
 #include <sys/types.h>
+#include <sys/stat.h> // before <sys/dfly.h>, <sys/tree.h>, <sys/dmsg.h>
+#include <netdb.h> // before <sys/dfly.h>, <sys/tree.h>, <sys/dmsg.h>
+#include <sys/queue.h>
+#include <sys/tree.h>
+#include <sys/file.h>
+#include <sys/socket.h>
+#include <sys/dmsg.h>
+#include <sys/poll.h>
+#include <sys/uio.h>
+#include <sys/dfly.h>
 
-#define GETDEVPATH_RAWDEV	0x0001
+#include <netinet/in.h>
+#include <netinet/ip.h>
+#include <netinet/tcp.h>
+#include <arpa/inet.h>
 
-#define _PATH_DEVTAB_PATHS \
-	"/usr/local/etc:/etc:/etc/defaults"
+#include <assert.h>
+#include <pthread.h>
+#include <libutil.h>
 
-char *getdevpath(const char *devname, int flags);
-int sysctlbyname(const char *name, void *oldp, size_t *oldlenp,
-		const void *newp, size_t newlen);
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <uuid/uuid.h>
+#include <time.h>
 
-#endif /* !LIBC_GEN_UTIL_H_ */
+#include <openssl/rsa.h>	/* public/private key functions */
+#include <openssl/pem.h>	/* public/private key file load */
+#include <openssl/err.h>
+#include <openssl/evp.h>	/* aes_256_cbc functions */
+
+#include <machine/atomic.h>
+#include <byteswap.h>
+
+#include "dmsg.h"

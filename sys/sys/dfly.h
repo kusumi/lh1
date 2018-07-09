@@ -38,11 +38,12 @@
 
 #include <sys/cdefs.h>
 
-#define LH1_VERSION_STRING	"v0.1.4"
+#define LH1_VERSION_STRING	"v0.1.5"
 
 #if __GNUC_PREREQ(2, 7)
 /*
- * Note that some Linux headers have __unused struct field.
+ * Note that some Linux headers have a struct field named __unused,
+ * which conflicts with __unused directive in DragonFly.
  * e.g. <linux/sysctl.h> included by <sys/sysctl.h>.
  * e.g. <bits/stat.h> included by <sys/stat.h>.
  *

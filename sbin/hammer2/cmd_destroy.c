@@ -2,7 +2,7 @@
  * Copyright (c) 2017 The DragonFly Project.  All rights reserved.
  *
  * This code is derived from software contributed to The DragonFly Project
- * by Matthew Dillon <dillon@backplane.com>
+ * by Matthew Dillon <dillon@dragonflybsd.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -14,9 +14,6 @@
  *    notice, this list of conditions and the following disclaimer in
  *    the documentation and/or other materials provided with the
  *    distribution.
- * 3. Neither the name of The DragonFly Project nor the names of its
- *    contributors may be used to endorse or promote products derived
- *    from this software without specific, prior written permission.
  *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
  * ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
@@ -32,18 +29,60 @@
  * SUCH DAMAGE.
  */
 
-#ifndef LIBC_GEN_UTIL_H_
-#define LIBC_GEN_UTIL_H_
+#include "hammer2.h"
 
-#include <sys/types.h>
+static int pathdir(const char *path, const char **lastp);
 
-#define GETDEVPATH_RAWDEV	0x0001
+int
+cmd_destroy_path(int ac, const char **av)
+{
+	hammer2_ioc_destroy_t destroy;
+	const char *last;
+	int i;
+	int fd;
 
-#define _PATH_DEVTAB_PATHS \
-	"/usr/local/etc:/etc:/etc/defaults"
+	for (i = 0; i < ac; ++i) {
+		bzero(&destroy, sizeof(destroy));
+		destroy.cmd = HAMMER2_DELETE_FILE;
+		printf("%s\t", av[i]);
+		fflush(stdout);
+		fd = pathdir(av[i], &last);
+		if (fd >= 0) {
+			snprintf(destroy.path, sizeof(destroy.path),
+				 "%s", last);
+			if (ioctl(fd, HAMMER2IOC_DESTROY, &destroy) < 0) {
+				printf("error: %s\n", strerror(errno));
+			} else {
+				printf("ok\n");
+			}
+			close(fd);
+		} else {
+			printf("error: %s\n", strerror(errno));
+		}
+	}
+	return 0;
+}
 
-char *getdevpath(const char *devname, int flags);
-int sysctlbyname(const char *name, void *oldp, size_t *oldlenp,
-		const void *newp, size_t newlen);
+static
+int
+pathdir(const char *path, const char **lastp)
+{
+	const char *ptr;
+	char *npath;
+	int fd;
 
-#endif /* !LIBC_GEN_UTIL_H_ */
+	ptr = path + strlen(path);
+	while (ptr > path && ptr[-1] != '/')
+		--ptr;
+	*lastp = ptr;
+	if (ptr == path) {
+		fd = open(".", O_RDONLY);
+	} else {
+		asprintf(&npath, "%*.*s",
+			(int)(ptr - path), (int)(ptr - path), path);
+		fd = open(npath, O_RDONLY);
+		free(npath);
+	}
+
+	return fd;
+}

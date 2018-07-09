@@ -35,6 +35,7 @@
 #ifndef _SYS_DMSG_H_
 #define _SYS_DMSG_H_
 
+#include <stdint.h>
 #include <sys/tree.h>
 #include <uuid/uuid.h>
 
@@ -395,11 +396,15 @@ struct dmsg_lnk_auth {
  * pfs_clid, pfs_fsid, pfs_type, and label are peer-specific and must be
  * left empty (zero-fill) if not supported by a particular peer.
  */
+typedef struct dmsg_uuid {
+	uuid_t uuid;
+} dmsg_uuid_t;
+
 struct dmsg_lnk_conn {
 	dmsg_hdr_t	head;
-	uuid_t		media_id;	/* media configuration id */
-	uuid_t		peer_id;	/* unique peer uuid */
-	uuid_t		reserved01;
+	dmsg_uuid_t	media_id;	/* media configuration id */
+	dmsg_uuid_t	peer_id;	/* unique peer uuid */
+	dmsg_uuid_t	reserved01;
 	uint64_t	peer_mask;	/* PEER mask for SPAN filtering */
 	uint8_t		peer_type;	/* see DMSG_PEER_xxx */
 	uint8_t		reserved02;
@@ -490,8 +495,8 @@ typedef struct dmsg_media_block dmsg_media_block_t;
  */
 struct dmsg_lnk_span {
 	dmsg_hdr_t	head;
-	uuid_t		peer_id;
-	uuid_t		pfs_id;		/* unique pfs id */
+	dmsg_uuid_t	peer_id;
+	dmsg_uuid_t	pfs_id;		/* unique pfs id */
 	uint8_t		pfs_type;	/* PFS type */
 	uint8_t		peer_type;	/* PEER type */
 	uint16_t	proto_version;	/* high level protocol support */

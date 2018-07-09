@@ -1,4 +1,4 @@
-SRCS1=	hexdump.c pidfile.c flopen.c humanize_unsigned.c realhostname.c trimdomain.c
+SRCS1=	strlcpy.c
 
 OBJS1 := $(SRCS1:.c=.o)
 
