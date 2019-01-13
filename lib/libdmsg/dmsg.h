@@ -36,6 +36,7 @@
 #include <sys/queue.h>
 #include <sys/tree.h>
 #include <sys/dmsg.h>
+#include <sys/dfly.h>
 
 #include <pthread.h>
 
@@ -456,7 +457,7 @@ int dmsg_crypto_encrypt(dmsg_iocom_t *iocom, dmsg_ioq_t *ioq,
  * Service daemon functions
  */
 void *dmsg_master_service(void *data);
-void dmsg_printf(dmsg_iocom_t *iocom, const char *ctl, ...);
+void dmsg_printf(dmsg_iocom_t *iocom, const char *ctl, ...) __printflike(2, 3);
 
 extern int DMsgDebugOpt;
 

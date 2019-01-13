@@ -38,7 +38,7 @@
 
 #include <sys/cdefs.h>
 
-#define LH1_VERSION_STRING	"v0.1.5"
+#define LH1_VERSION_STRING	"v0.1.6"
 
 #if __GNUC_PREREQ(2, 7)
 /*
@@ -47,8 +47,8 @@
  * e.g. <linux/sysctl.h> included by <sys/sysctl.h>.
  * e.g. <bits/stat.h> included by <sys/stat.h>.
  *
- * These macros won't be renamed to minimize diff from upstream.
- * <sys/dfly.h> should be included after such headers.
+ * These macros used in lh1 won't be renamed to minimize diff from DragonFly.
+ * <sys/dfly.h> should be included after such headers that cause conflicts.
  */
 #define __unused	__attribute__((unused))
 #define __dead2		__attribute__((__noreturn__))
@@ -57,6 +57,17 @@
 #define __unused
 #define __dead2
 #define __packed
+#endif
+
+#if !__GNUC_PREREQ(2, 7)
+#define	__printflike(fmtarg, firstvararg)
+#elif __GNUC_PREREQ(3, 0)
+#define	__printflike(fmtarg, firstvararg) \
+            __attribute__((__nonnull__(fmtarg), \
+			  __format__ (__printf__, fmtarg, firstvararg)))
+#else
+#define	__printflike(fmtarg, firstvararg) \
+	    __attribute__((__format__ (__printf__, fmtarg, firstvararg)))
 #endif
 
 #endif /* !_SYS_DFLY_H_ */

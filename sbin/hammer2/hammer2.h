@@ -140,7 +140,8 @@ int cmd_pfs_list(int ac, const char **av);
 int cmd_pfs_create(const char *sel_path, const char *name,
 			uint8_t pfs_type, const char *uuid_str);
 int cmd_pfs_delete(const char *sel_path, const char *name);
-int cmd_pfs_snapshot(const char *sel_path, const char *name, const char *label);
+int cmd_pfs_snapshot(const char *sel_path, const char *name, const char *label,
+			uint32_t pfs_flags);
 
 int cmd_service(void);
 int cmd_hash(int ac, const char **av);
@@ -151,6 +152,7 @@ int cmd_leaf(const char *sel_path);
 int cmd_shell(const char *hostname);
 int cmd_debugspan(const char *hostname);
 int cmd_destroy_path(int ac, const char **av);
+int cmd_destroy_inum(const char *sel_path, int ac, const char **av);
 int cmd_dumpchain(const char *path, u_int flags);
 int cmd_show(const char *devpath, int dofreemap);
 int cmd_rsainit(const char *dir_path);

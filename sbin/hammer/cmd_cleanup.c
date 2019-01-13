@@ -99,7 +99,7 @@ static int cleanup_recopy(const char *path, const char *snapshots_path,
 static int cleanup_dedup(const char *path, const char *snapshots_path,
 			int arg1, int arg2);
 
-static void runcmd(int *resp, const char *ctl, ...);
+static void runcmd(int *resp, const char *ctl, ...) __printflike(2, 3);
 
 #define WS	" \t\r\n"
 
@@ -536,10 +536,12 @@ do_cleanup(const char *path)
 
 	/*
 	 * Cleanup, and delay a little
+	 *
+	 * NOTE: pidfile_remove() closes, removes, and frees the pfh.
+	 *	 pidfile_close() closes and frees.
 	 */
 	close(fd);
 	usleep(1000);
-	pidfile_close(pfh);
 	pidfile_remove(pfh);
 }
 
