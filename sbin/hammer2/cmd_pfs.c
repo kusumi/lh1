@@ -97,7 +97,7 @@ cmd_pfs_list(int ac, const char **av)
 				printf("%02x          ", pfs.pfs_type);
 				break;
 			}
-			hammer2_uuid_to_string(&pfs.pfs_clid, &pfs_id_str);
+			hammer2_uuid_to_str(&pfs.pfs_clid, &pfs_id_str);
 			printf("%s ", pfs_id_str);
 			free(pfs_id_str);
 			pfs_id_str = NULL;
@@ -128,9 +128,9 @@ cmd_pfs_getid(const char *sel_path, const char *name, int privateid)
 		ecode = 1;
 	} else {
 		if (privateid)
-			hammer2_uuid_to_string(&pfs.pfs_fsid, &pfs_id_str);
+			hammer2_uuid_to_str(&pfs.pfs_fsid, &pfs_id_str);
 		else
-			hammer2_uuid_to_string(&pfs.pfs_clid, &pfs_id_str);
+			hammer2_uuid_to_str(&pfs.pfs_clid, &pfs_id_str);
 		printf("%s\n", pfs_id_str);
 		free(pfs_id_str);
 		pfs_id_str = NULL;

@@ -89,8 +89,6 @@ static hammer2_off_t BootAreaSize;
 static hammer2_off_t AuxAreaSize;
 static int NLabels;
 
-#define GIG	((hammer2_off_t)1024*1024*1024)
-
 int
 main(int ac, char **av)
 {
@@ -144,8 +142,7 @@ main(int ac, char **av)
 				break;
 			}
 			if (NLabels >= MAXLABELS) {
-				errx(1,
-				     "Limit of %d local labels",
+				errx(1, "Limit of %d local labels",
 				     MAXLABELS - 1);
 			}
 			Label[NLabels++] = optarg;
@@ -255,7 +252,7 @@ main(int ac, char **av)
 		BootAreaSize = HAMMER2_BOOT_MIN_BYTES;
 	}
 	BootAreaSize = (BootAreaSize + HAMMER2_VOLUME_ALIGNMASK64) &
-		       ~HAMMER2_VOLUME_ALIGNMASK64;
+		        ~HAMMER2_VOLUME_ALIGNMASK64;
 
 	/*
 	 * Calculate defaults for the redo area size and round to the
@@ -300,8 +297,7 @@ main(int ac, char **av)
 	reserved_space = ((total_space + HAMMER2_FREEMAP_LEVEL1_MASK) /
 			  HAMMER2_FREEMAP_LEVEL1_SIZE) * HAMMER2_ZONE_SEG64;
 
-	free_space = total_space - reserved_space -
-		     BootAreaSize - AuxAreaSize;
+	free_space = total_space - reserved_space - BootAreaSize - AuxAreaSize;
 
 	format_hammer2(fd, total_space, free_space);
 	fsync(fd);
@@ -314,7 +310,7 @@ main(int ac, char **av)
 	       (intmax_t)total_space);
 	printf("boot-area-size:   %s\n", sizetostr(BootAreaSize));
 	printf("aux-area-size:    %s\n", sizetostr(AuxAreaSize));
-	printf("topo-reserved:	  %s\n", sizetostr(reserved_space));
+	printf("topo-reserved:    %s\n", sizetostr(reserved_space));
 	printf("free-space:       %s\n", sizetostr(free_space));
 	printf("vol-fsid:         %s\n", vol_fsid);
 	printf("sup-clid:         %s\n", sup_clid_name);
@@ -342,8 +338,8 @@ void
 usage(void)
 {
 	fprintf(stderr,
-		"usage: newfs_hammer2 -L label [-f] [-b bootsize] "
-		"[-r redosize] [-V version] special ...\n"
+		"usage: newfs_hammer2 [-f] [-b bootsize] [-r redosize] "
+		"[-V version] [-L label ...] special\n"
 	);
 	exit(1);
 }
@@ -495,16 +491,13 @@ check_volume(const char *path, int *fdp)
  * Create the volume header, the super-root directory inode, and
  * the writable snapshot subdirectory (named via the label) which
  * is to be the initial mount point, or at least the first mount point.
+ * newfs_hammer2 doesn't format the freemap bitmaps for these.
  *
+ * 0                      4MB
  * [----reserved_area----][boot_area][aux_area]
- * [[vol_hdr]...         ]                     [sroot][root]...
- *
- * The sroot and root inodes eat 512 bytes each.  newfs labels can only be
- * 64 bytes so the root (snapshot) inode does not need to extend past 512
- * bytes.  We use the correct hash slot correct but note that because
- * directory hashes are chained 16x, any slot in the inode will work.
- *
- * Also format the allocation map.
+ * [[vol_hdr][freemap]...]                     [sroot][root][root]...
+ *     \                                        ^\     ^     ^
+ *      \--------------------------------------/  \---/-----/---...
  *
  * NOTE: The passed total_space is 8MB-aligned to avoid edge cases.
  */
@@ -557,9 +550,20 @@ format_hammer2(int fd, hammer2_off_t total_space, hammer2_off_t free_space)
 	 */
 	assert((alloc_base & HAMMER2_PBUFMASK) == 0);
 	assert(alloc_base < HAMMER2_ZONE_BYTES64 - HAMMER2_ZONE_SEG);
-	now = nowtime();
-	bzero(buf, HAMMER2_PBUFSIZE);
 
+	/*
+	 * Clear the boot/aux area.
+	 */
+	for (tmp_base = boot_base; tmp_base < alloc_base;
+	     tmp_base += HAMMER2_PBUFSIZE) {
+		n = pwrite(fd, buf, HAMMER2_PBUFSIZE, tmp_base);
+		if (n != HAMMER2_PBUFSIZE) {
+			perror("write (boot/aux)");
+			exit(1);
+		}
+	}
+
+	now = nowtime();
 	alloc_base &= ~HAMMER2_PBUFMASK64;
 	alloc_direct(&alloc_base, &sroot_blockref, HAMMER2_INODE_BYTES);
 
@@ -664,7 +668,7 @@ format_hammer2(int fd, hammer2_off_t total_space, hammer2_off_t free_space)
 	rawip->meta.type = HAMMER2_OBJTYPE_DIRECTORY;
 	rawip->meta.mode = 0700;	/* super-root - root only */
 	rawip->meta.inum = 0;		/* super root inode, inumber 0 */
-	rawip->meta.nlinks = 2; 	/* directory link count compat */
+	rawip->meta.nlinks = 2;		/* directory link count compat */
 
 	rawip->meta.name_len = 0;	/* super-root is unnamed */
 	rawip->meta.name_key = 0;
@@ -709,7 +713,7 @@ format_hammer2(int fd, hammer2_off_t total_space, hammer2_off_t free_space)
 	sroot_blockref.copyid = HAMMER2_COPYID_LOCAL;
 	sroot_blockref.keybits = 0;
 	sroot_blockref.check.xxhash64.value =
-					XXH64(rawip, sizeof(*rawip), XXH_HAMMER2_SEED);
+				XXH64(rawip, sizeof(*rawip), XXH_HAMMER2_SEED);
 	sroot_blockref.type = HAMMER2_BREF_TYPE_INODE;
 	sroot_blockref.methods = HAMMER2_ENC_CHECK(HAMMER2_CHECK_XXHASH64) |
 			         HAMMER2_ENC_COMP(HAMMER2_COMP_AUTOZERO);

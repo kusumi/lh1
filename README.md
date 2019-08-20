@@ -1,4 +1,4 @@
-lh1 - Linux HAMMER (v0.1.6)
+lh1 - Linux HAMMER (v0.1.7)
 ===
 
 ## About
@@ -6,6 +6,8 @@ lh1 - Linux HAMMER (v0.1.6)
 + HAMMER1/2 userspace utilities on Linux / x86_64.
 
 ## Changes
+
++ 2019.08.20 / v0.1.7 - Sync with DragonFly BSD.
 
 + 2019.01.13 / v0.1.6 - Sync with DragonFly BSD.
 
@@ -40,7 +42,7 @@ lh1 - Linux HAMMER (v0.1.6)
 |Distribution|Required package|
 |:-----------|:---------------|
 |Fedora      |libuuid-devel   |
-|CentOS      |libuuid-devel   |
+|RHEL        |libuuid-devel   |
 |Ubuntu      |uuid-dev        |
 
 ### Required package for <openssl/*.h>
@@ -48,7 +50,7 @@ lh1 - Linux HAMMER (v0.1.6)
 |Distribution|Required package|
 |:-----------|:---------------|
 |Fedora      |openssl-devel   |
-|CentOS      |openssl-devel   |
+|RHEL        |openssl-devel   |
 |Ubuntu      |libssl-dev      |
 
 ## Install

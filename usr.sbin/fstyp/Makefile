@@ -10,8 +10,8 @@ CFLAGS+= -I../../sys -Wall -g
 .PHONY: all clean
 
 all: $(PROG)
-$(PROG): $(OBJS)
-	$(CC) $(CFLAGS) -o $@ $(OBJS)
+$(PROG): $(OBJS) ../../lib/libc/string
+	$(CC) $(CFLAGS) -o $@ $(OBJS) ../../lib/libc/string/strlcpy.o
 .c.o:
 	$(CC) $(CFLAGS) -c $<
 clean:

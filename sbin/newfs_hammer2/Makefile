@@ -6,6 +6,7 @@ OBJS := $(SRCS:.c=.o)
 
 CC=	gcc
 CFLAGS+= -I../../sys -Wall -g
+CFLAGS+= -DXXH_NAMESPACE=h2_
 
 .PHONY: all clean
 

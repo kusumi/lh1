@@ -35,7 +35,7 @@
 
 #include "hammer2.h"
 
-#define SHOW_TAB	2
+static int show_tab = 2;
 
 static void shell_msghandler(dmsg_msg_t *msg, int unmanaged);
 static void shell_ttymsg(dmsg_iocom_t *iocom);
@@ -379,8 +379,8 @@ static void show_bref(hammer2_volume_data_t *voldata, int fd, int tab,
 			int dofreemap, int norecurse);
 static void tabprintf(int tab, const char *ctl, ...);
 
-int64_t TotalFreeAccum16;
-int64_t TotalFreeAccum64;
+static hammer2_off_t TotalFreeAccum16;
+static hammer2_off_t TotalFreeAccum64;
 
 int
 cmd_show(const char *devpath, int dofreemap)
@@ -391,9 +391,18 @@ cmd_show(const char *devpath, int dofreemap)
 	int fd;
 	int i;
 	int best_i;
+	char *env;
 
 	TotalFreeAccum16 = 0;	/* includes TotalFreeAccum64 */
 	TotalFreeAccum64 = 0;
+
+	env = getenv("HAMMER2_SHOW_TAB");
+	if (env != NULL) {
+		show_tab = (int)strtol(env, NULL, 0);
+		if (errno || show_tab < 0 || show_tab > 8)
+			show_tab = 2;
+	}
+
 	fd = open(devpath, O_RDONLY);
 	if (fd < 0) {
 		perror("open");
@@ -406,11 +415,11 @@ cmd_show(const char *devpath, int dofreemap)
 	 */
 	best_i = -1;
 	bzero(&best, sizeof(best));
-	for (i = 0; i < 4; ++i) {
+	for (i = 0; i < HAMMER2_NUM_VOLHDRS; ++i) {
 		bzero(&broot, sizeof(broot));
-		broot.type = HAMMER2_BREF_TYPE_VOLUME;
-		broot.data_off = (i * HAMMER2_ZONE_BYTES64) |
-				 HAMMER2_PBUFRADIX;
+		broot.type = dofreemap ?
+		    HAMMER2_BREF_TYPE_FREEMAP : HAMMER2_BREF_TYPE_VOLUME;
+		broot.data_off = (i * HAMMER2_ZONE_BYTES64) | HAMMER2_PBUFRADIX;
 		lseek(fd, broot.data_off & ~HAMMER2_OFF_MASK_RADIX, 0);
 		if (read(fd, &media, HAMMER2_PBUFSIZE) ==
 		    (ssize_t)HAMMER2_PBUFSIZE) {
@@ -420,7 +429,8 @@ cmd_show(const char *devpath, int dofreemap)
 				best = broot;
 			}
 			if (VerboseOpt >= 3)
-				show_bref(&media.voldata, fd, 0, i, &broot, dofreemap, 0);
+				show_bref(&media.voldata, fd, 0, i, &broot,
+				    dofreemap, 0);
 		}
 	}
 	if (VerboseOpt < 3)
@@ -436,16 +446,15 @@ cmd_show(const char *devpath, int dofreemap)
 	return 0;
 }
 
-extern uint32_t iscsi_crc32(const void *buf, size_t size);
 static void
 show_bref(hammer2_volume_data_t *voldata, int fd, int tab,
 	  int bi, hammer2_blockref_t *bref, int dofreemap, int norecurse)
 {
 	hammer2_media_data_t media;
 	hammer2_blockref_t *bscan;
+	hammer2_off_t tmp;
 	int bcount;
 	int i;
-	int didnl;
 	int namelen;
 	int obrace = 1;
 	int failed;
@@ -454,6 +463,43 @@ show_bref(hammer2_volume_data_t *voldata, int fd, int tab,
 	char *str = NULL;
 	uint32_t cv;
 	uint64_t cv64;
+
+	bytes = (bref->data_off & HAMMER2_OFF_MASK_RADIX);
+	if (bytes)
+		bytes = (size_t)1 << bytes;
+	if (bytes) {
+		hammer2_off_t io_off;
+		hammer2_off_t io_base;
+		size_t io_bytes;
+		size_t boff;
+
+		io_off = bref->data_off & ~HAMMER2_OFF_MASK_RADIX;
+		io_base = io_off & ~(hammer2_off_t)(HAMMER2_MINIOSIZE - 1);
+		boff = io_off - io_base;
+
+		io_bytes = HAMMER2_MINIOSIZE;
+		while (io_bytes + boff < bytes)
+			io_bytes <<= 1;
+
+		if (io_bytes > sizeof(media)) {
+			printf("(bad block size %zd)\n", bytes);
+			return;
+		}
+		if (bref->type != HAMMER2_BREF_TYPE_DATA || VerboseOpt >= 1) {
+			lseek(fd, io_base, 0);
+			if (read(fd, &media, io_bytes) != (ssize_t)io_bytes) {
+				printf("(media read failed)\n");
+				return;
+			}
+			if (boff)
+				bcopy((char *)&media + boff, &media, bytes);
+		}
+	}
+
+	bscan = NULL;
+	bcount = 0;
+	namelen = 0;
+	failed = 0;
 
 	switch(bref->type) {
 	case HAMMER2_BREF_TYPE_EMPTY:
@@ -488,14 +534,41 @@ show_bref(hammer2_volume_data_t *voldata, int fd, int tab,
 		break;
 	}
 
+	switch(bref->type) {
+	case HAMMER2_BREF_TYPE_INODE:
+		if (!(media.ipdata.meta.op_flags & HAMMER2_OPFLAG_DIRECTDATA)) {
+			bscan = &media.ipdata.u.blockset.blockref[0];
+			bcount = HAMMER2_SET_COUNT;
+		}
+		break;
+	case HAMMER2_BREF_TYPE_INDIRECT:
+		bscan = &media.npdata[0];
+		bcount = bytes / sizeof(hammer2_blockref_t);
+		break;
+	case HAMMER2_BREF_TYPE_VOLUME:
+		bscan = &media.voldata.sroot_blockset.blockref[0];
+		bcount = HAMMER2_SET_COUNT;
+		break;
+	case HAMMER2_BREF_TYPE_FREEMAP:
+		bscan = &media.voldata.freemap_blockset.blockref[0];
+		bcount = HAMMER2_SET_COUNT;
+		break;
+	case HAMMER2_BREF_TYPE_FREEMAP_NODE:
+		bscan = &media.npdata[0];
+		bcount = bytes / sizeof(hammer2_blockref_t);
+		break;
+	}
+
 	tabprintf(tab,
 		  "%s.%-3d %016jx %016jx/%-2d "
 		  "mir=%016jx mod=%016jx leafcnt=%d ",
-	       type_str, bi, (intmax_t)bref->data_off,
-	       (intmax_t)bref->key, (intmax_t)bref->keybits,
-	       (intmax_t)bref->mirror_tid, (intmax_t)bref->modify_tid,
-	       bref->leaf_count);
-	tab += SHOW_TAB;
+		  type_str, bi, (intmax_t)bref->data_off,
+		  (intmax_t)bref->key, (intmax_t)bref->keybits,
+		  (intmax_t)bref->mirror_tid, (intmax_t)bref->modify_tid,
+		  bref->leaf_count);
+	tab += show_tab;
+	if (bcount)
+		printf("bcnt=%d ", bcount);
 	if (bref->flags)
 		printf("flags=%02x ", bref->flags);
 	if (bref->type == HAMMER2_BREF_TYPE_FREEMAP_NODE ||
@@ -503,45 +576,6 @@ show_bref(hammer2_volume_data_t *voldata, int fd, int tab,
 		printf("bigmask=%08x avail=%ld ",
 			bref->check.freemap.bigmask, bref->check.freemap.avail);
 	}
-
-	bytes = (bref->data_off & HAMMER2_OFF_MASK_RADIX);
-	if (bytes)
-		bytes = (size_t)1 << bytes;
-	if (bytes) {
-		hammer2_off_t io_off;
-		hammer2_off_t io_base;
-		size_t io_bytes;
-		size_t boff;
-
-		io_off = bref->data_off & ~HAMMER2_OFF_MASK_RADIX;
-		io_base = io_off & ~(hammer2_off_t)(HAMMER2_MINIOSIZE - 1);
-		io_bytes = bytes;
-		boff = io_off - io_base;
-
-		io_bytes = HAMMER2_MINIOSIZE;
-		while (io_bytes + boff < bytes)
-			io_bytes <<= 1;
-
-		if (io_bytes > sizeof(media)) {
-			printf("(bad block size %zd)\n", bytes);
-			return;
-		}
-		if (bref->type != HAMMER2_BREF_TYPE_DATA || VerboseOpt >= 1) {
-			lseek(fd, io_base, 0);
-			if (read(fd, &media, io_bytes) != (ssize_t)io_bytes) {
-				printf("(media read failed)\n");
-				return;
-			}
-			if (boff)
-				bcopy((char *)&media + boff, &media, bytes);
-		}
-	}
-
-	bscan = NULL;
-	bcount = 0;
-	didnl = 1;
-	namelen = 0;
-	failed = 0;
 
 	/*
 	 * Check data integrity in verbose mode, otherwise we are just doing
@@ -606,6 +640,12 @@ show_bref(hammer2_volume_data_t *voldata, int fd, int tab,
 		}
 	}
 
+	if (QuietOpt > 0) {
+		obrace = 0;
+		printf("\n");
+		goto skip_data;
+	}
+
 	switch(bref->type) {
 	case HAMMER2_BREF_TYPE_EMPTY:
 		obrace = 0;
@@ -624,24 +664,19 @@ show_bref(hammer2_volume_data_t *voldata, int fd, int tab,
 				media.buf);
 		}
 		tabprintf(tab, "inum 0x%016jx\n",
-			(uintmax_t)bref->embed.dirent.inum);
+			  (uintmax_t)bref->embed.dirent.inum);
 		tabprintf(tab, "type     %s\n",
 			  hammer2_iptype_to_str(bref->embed.dirent.type));
 		break;
 	case HAMMER2_BREF_TYPE_INODE:
 		printf("{\n");
-		if (media.ipdata.meta.op_flags & HAMMER2_OPFLAG_DIRECTDATA) {
-			/* no blockrefs */
-		} else {
-			bscan = &media.ipdata.u.blockset.blockref[0];
-			bcount = HAMMER2_SET_COUNT;
-		}
 		namelen = media.ipdata.meta.name_len;
 		if (namelen > HAMMER2_INODE_MAXNAME)
 			namelen = 0;
 		tabprintf(tab, "filename \"%*.*s\"\n",
 			  namelen, namelen, media.ipdata.filename);
 		tabprintf(tab, "version  %d\n", media.ipdata.meta.version);
+		tabprintf(tab, "pfs_st   %d\n", media.ipdata.meta.pfs_subtype);
 		tabprintf(tab, "uflags   0x%08x\n",
 			  media.ipdata.meta.uflags);
 		if (media.ipdata.meta.rmajor || media.ipdata.meta.rminor) {
@@ -672,8 +707,13 @@ show_bref(hammer2_volume_data_t *voldata, int fd, int tab,
 			  media.ipdata.meta.mode);
 		tabprintf(tab, "inum     0x%016jx\n",
 			  media.ipdata.meta.inum);
-		tabprintf(tab, "size     %ju\n",
+		tabprintf(tab, "size     %ju ",
 			  (uintmax_t)media.ipdata.meta.size);
+		if (media.ipdata.meta.op_flags & HAMMER2_OPFLAG_DIRECTDATA &&
+		    media.ipdata.meta.size <= HAMMER2_EMBEDDED_BYTES)
+			printf("(embedded data)\n");
+		else
+			printf("\n");
 		tabprintf(tab, "nlinks   %ju\n",
 			  (uintmax_t)media.ipdata.meta.nlinks);
 		tabprintf(tab, "iparent  0x%016jx\n",
@@ -686,10 +726,14 @@ show_bref(hammer2_volume_data_t *voldata, int fd, int tab,
 			  media.ipdata.meta.ncopies);
 		tabprintf(tab, "compalg  %u\n",
 			  media.ipdata.meta.comp_algo);
+		tabprintf(tab, "target_t %u\n",
+			  media.ipdata.meta.target_type);
 		tabprintf(tab, "checkalg %u\n",
 			  media.ipdata.meta.check_algo);
 		if ((media.ipdata.meta.op_flags & HAMMER2_OPFLAG_PFSROOT) ||
 		    media.ipdata.meta.pfs_type == HAMMER2_PFSTYPE_SUPROOT) {
+			tabprintf(tab, "pfs_nmas %u\n",
+				  media.ipdata.meta.pfs_nmasters);
 			tabprintf(tab, "pfs_type %u (%s)\n",
 				  media.ipdata.meta.pfs_type,
 				  hammer2_pfstype_to_str(media.ipdata.meta.pfs_type));
@@ -714,57 +758,44 @@ show_bref(hammer2_volume_data_t *voldata, int fd, int tab,
 			  (uintmax_t)bref->embed.stats.inode_count);
 		break;
 	case HAMMER2_BREF_TYPE_INDIRECT:
-		bscan = &media.npdata[0];
-		bcount = bytes / sizeof(hammer2_blockref_t);
-		didnl = 1;
 		printf("{\n");
 		break;
 	case HAMMER2_BREF_TYPE_DATA:
-#if 0
-		if (VerboseOpt >= 2) {
-			printf("{\n");
-		} else
-#endif
-		{
-			printf("\n");
-			obrace = 0;
-		}
+		printf("\n");
+		obrace = 0;
 		break;
 	case HAMMER2_BREF_TYPE_VOLUME:
 		printf("mirror_tid=%016jx freemap_tid=%016jx ",
 			media.voldata.mirror_tid,
 			media.voldata.freemap_tid);
-		if (dofreemap) {
-			bscan = &media.voldata.freemap_blockset.blockref[0];
-			bcount = HAMMER2_SET_COUNT;
-		} else {
-			bscan = &media.voldata.sroot_blockset.blockref[0];
-			bcount = HAMMER2_SET_COUNT;
-		}
+		printf("{\n");
+		break;
+	case HAMMER2_BREF_TYPE_FREEMAP:
+		printf("mirror_tid=%016jx freemap_tid=%016jx ",
+			media.voldata.mirror_tid,
+			media.voldata.freemap_tid);
 		printf("{\n");
 		break;
 	case HAMMER2_BREF_TYPE_FREEMAP_LEAF:
 		printf("{\n");
-		for (i = 0; i < HAMMER2_FREEMAP_COUNT; ++i) {
-			hammer2_off_t data_off;
+		tmp = bref->data_off & ~HAMMER2_OFF_MASK_RADIX;
+		tmp &= HAMMER2_SEGMASK;
+		tmp /= HAMMER2_PBUFSIZE;
+		assert(tmp < HAMMER2_ZONE_FREEMAP_END);
+		tmp -= HAMMER2_ZONE_FREEMAP_00;
+		tmp /= HAMMER2_ZONE_FREEMAP_INC;
+		tabprintf(tab, "rotation=%d\n", (int)tmp);
 
-			data_off = bref->key +
-				   i * 256 * HAMMER2_FREEMAP_BLOCK_SIZE;
-			/*
-			if (media.bmdata[i].class == 0 &&
-			    media.bmdata[i].avail == 0) {
-				continue;
-			}
-			*/
+		for (i = 0; i < HAMMER2_FREEMAP_COUNT; ++i) {
+			hammer2_off_t data_off = bref->key +
+				i * HAMMER2_FREEMAP_LEVEL0_SIZE;
 #if HAMMER2_BMAP_ELEMENTS != 8
 #error "cmd_debug.c: HAMMER2_BMAP_ELEMENTS expected to be 8"
 #endif
-
 			tabprintf(tab + 4, "%016jx %04d.%04x (avail=%7d) "
 				  "%016jx %016jx %016jx %016jx "
 				  "%016jx %016jx %016jx %016jx\n",
-				  data_off,
-				  i, media.bmdata[i].class,
+				  data_off, i, media.bmdata[i].class,
 				  media.bmdata[i].avail,
 				  media.bmdata[i].bitmapq[0],
 				  media.bmdata[i].bitmapq[1],
@@ -777,16 +808,21 @@ show_bref(hammer2_volume_data_t *voldata, int fd, int tab,
 			if (data_off >= voldata->aux_end &&
 			    data_off < voldata->volu_size) {
 				CountFreeBlocks(&media.bmdata[i],
-						(hammer2_off_t*)&TotalFreeAccum16,
-						(hammer2_off_t*)&TotalFreeAccum64);
+						&TotalFreeAccum16,
+						&TotalFreeAccum64);
 			}
 		}
 		tabprintf(tab, "}\n");
 		break;
 	case HAMMER2_BREF_TYPE_FREEMAP_NODE:
 		printf("{\n");
-		bscan = &media.npdata[0];
-		bcount = bytes / sizeof(hammer2_blockref_t);
+		tmp = bref->data_off & ~HAMMER2_OFF_MASK_RADIX;
+		tmp &= HAMMER2_SEGMASK;
+		tmp /= HAMMER2_PBUFSIZE;
+		assert(tmp < HAMMER2_ZONE_FREEMAP_END);
+		tmp -= HAMMER2_ZONE_FREEMAP_00;
+		tmp /= HAMMER2_ZONE_FREEMAP_INC;
+		tabprintf(tab, "rotation=%d\n", (int)tmp);
 		break;
 	default:
 		printf("\n");
@@ -796,6 +832,7 @@ show_bref(hammer2_volume_data_t *voldata, int fd, int tab,
 	if (str)
 		free(str);
 
+skip_data:
 	/*
 	 * Recurse if norecurse == 0.  If the CRC failed, pass norecurse = 1.
 	 * That is, if an indirect or inode fails we still try to list its
@@ -804,20 +841,16 @@ show_bref(hammer2_volume_data_t *voldata, int fd, int tab,
 	 */
 	for (i = 0; norecurse == 0 && i < bcount; ++i) {
 		if (bscan[i].type != HAMMER2_BREF_TYPE_EMPTY) {
-			if (didnl == 0) {
-				printf("\n");
-				didnl = 1;
-			}
-			show_bref(voldata, fd, tab,
-				  i, &bscan[i], dofreemap, failed);
+			show_bref(voldata, fd, tab, i, &bscan[i], dofreemap,
+				  failed);
 		}
 	}
-	tab -= SHOW_TAB;
+	tab -= show_tab;
 	if (obrace) {
 		if (bref->type == HAMMER2_BREF_TYPE_INODE)
 			tabprintf(tab, "} (%s.%d, \"%*.*s\")\n",
-				  type_str, bi,
-				  namelen, namelen, media.ipdata.filename);
+				  type_str, bi, namelen, namelen,
+				  media.ipdata.filename);
 		else
 			tabprintf(tab, "} (%s.%d)\n", type_str,bi);
 	}
@@ -854,8 +887,25 @@ cmd_hash(int ac, const char **av)
 	int i;
 
 	for (i = 0; i < ac; ++i) {
-		printf("%016jx %s\n", dirhash((unsigned char*)av[i],
-			strlen(av[i])), av[i]);
+		printf("%016jx %s\n",
+		       dirhash((const unsigned char*)av[i], strlen(av[i])),
+		       av[i]);
+	}
+	return(0);
+}
+
+int
+cmd_dhash(int ac, const char **av)
+{
+	char buf[1024];		/* 1K extended directory record */
+	uint64_t hash;
+	int i;
+
+	for (i = 0; i < ac; ++i) {
+		bzero(buf, sizeof(buf));
+		snprintf(buf, sizeof(buf), "%s", av[i]);
+		hash = XXH64(buf, sizeof(buf), XXH_HAMMER2_SEED);
+		printf("%016jx %s\n", hash, av[i]);
 	}
 	return(0);
 }

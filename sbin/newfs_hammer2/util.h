@@ -40,7 +40,5 @@
 void hammer2_uuid_create(hammer2_uuid_t *uuid);
 int hammer2_uuid_from_string(const char *str, hammer2_uuid_t *uuid);
 int hammer2_uuid_to_string(const hammer2_uuid_t *uuid, char **str);
-int hammer2_uuid_name_lookup(hammer2_uuid_t *uuid, const char *str);
-int hammer2_uuid_compare(const hammer2_uuid_t *uuid1, const hammer2_uuid_t *uuid2);
 
 #endif /* !HAMMER2_UTIL_H_ */

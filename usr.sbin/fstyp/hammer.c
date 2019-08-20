@@ -34,6 +34,8 @@
 #include <assert.h>
 #include <vfs/hammer/hammer_disk.h>
 
+#include "../../lib/libc/string/util.h"
+
 #include "fstyp.h"
 
 static hammer_volume_ondisk_t
@@ -99,7 +101,7 @@ fstyp_hammer(FILE *fp, char *label, size_t size)
 	if (__test_ondisk(ondisk))
 		goto done;
 
-	strncpy(label, ondisk->vol_label, size - 1);
+	strlcpy(label, ondisk->vol_label, size);
 	error = 0;
 done:
 	free(ondisk);
@@ -172,7 +174,7 @@ __fsvtyp_hammer(const char *blkdevs, char *label, size_t size, int partial)
 		if (x[i] != 0)
 			goto done;
 success:
-	strncpy(label, ondisk->vol_label, size - 1);
+	strlcpy(label, ondisk->vol_label, size);
 	error = 0;
 done:
 	free(ondisk);

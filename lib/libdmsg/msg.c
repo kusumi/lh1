@@ -40,9 +40,9 @@
 #define DMSG_BLOCK_DEBUG
 
 int DMsgDebugOpt;
-int dmsg_state_count;
+static unsigned int dmsg_state_count;
 #ifdef DMSG_BLOCK_DEBUG
-static int biocount;
+static unsigned int biocount;
 #endif
 
 static int dmsg_state_msgrx(dmsg_msg_t *msg, int mstate);
@@ -2712,7 +2712,7 @@ void
 dmsg_state_drop(dmsg_state_t *state)
 {
 	assert(state->refs > 0);
-	if (atomic_fetchadd_int((volatile u_int*)&state->refs, -1) == 1)
+	if (atomic_fetchadd_int(&state->refs, -1) == 1)
 		dmsg_state_free(state);
 }
 

@@ -60,30 +60,6 @@
  */
 
 /*
- * The above functions are expanded inline in the statically-linked
- * kernel and lock prefixes are generated.
- *
- * Kernel modules call real functions which are built into the kernel.
- */
-#if defined(KLD_MODULE)
-#define ATOMIC_ASM(NAME, TYPE, OP, CONS, V)		\
-	extern void atomic_##NAME##_##TYPE		\
-		(volatile u_##TYPE *p, u_##TYPE v);	\
-	extern void atomic_##NAME##_##TYPE##_nonlocked	\
-		(volatile u_##TYPE *p, u_##TYPE v);	\
-	extern void atomic_##NAME##_##TYPE##_xacquire	\
-		(volatile u_##TYPE *p, u_##TYPE v);	\
-	extern void atomic_##NAME##_##TYPE##_xrelease	\
-		(volatile u_##TYPE *p, u_##TYPE v);
-
-int	atomic_testandset_int(volatile u_int *p, u_int v);
-int	atomic_testandset_long(volatile u_long *p, u_long v);
-int	atomic_testandclear_int(volatile u_int *p, u_int v);
-int	atomic_testandclear_long(volatile u_long *p, u_long v);
-
-#else /* !KLD_MODULE */
-
-/*
  * locked bus cycle
  * lock elision (backwards compatible)
  */
@@ -111,7 +87,7 @@ int	atomic_testandclear_long(volatile u_long *p, u_long v);
 /* egcs 1.1.2+ version */
 #define ATOMIC_ASM(NAME, TYPE, OP, CONS, V)		\
 static __inline void					\
-__do_atomic_##NAME##_##TYPE(volatile u_##TYPE *p, u_##TYPE v)\
+atomic_##NAME##_##TYPE(volatile u_##TYPE *p, u_##TYPE v)\
 {							\
 	__asm __volatile(MPLOCKED OP			\
 			 : "+m" (*p)			\
@@ -137,14 +113,7 @@ atomic_##NAME##_##TYPE##_nonlocked(volatile u_##TYPE *p, u_##TYPE v)\
 	__asm __volatile(OP				\
 			 : "+m" (*p)			\
 			 : CONS (V)); 			\
-}							\
-static __inline void					\
-atomic_##NAME##_##TYPE(volatile TYPE *p, TYPE v)	\
-{							\
-	__do_atomic_##NAME##_##TYPE((volatile u_##TYPE*)p, (u_##TYPE)v);\
 }
-
-#endif /* KLD_MODULE */
 
 /* egcs 1.1.2+ version */
 ATOMIC_ASM(set,	     char,  "orb %b1,%0",  "iq",   v)
@@ -166,13 +135,6 @@ ATOMIC_ASM(set,	     long,  "orq %1,%0",  "r",   v)
 ATOMIC_ASM(clear,    long,  "andq %1,%0", "r",  ~v)
 ATOMIC_ASM(add,	     long,  "addq %1,%0", "r",   v)
 ATOMIC_ASM(subtract, long,  "subq %1,%0", "r",   v)
-
-#if defined(KLD_MODULE)
-
-u_long	atomic_readandclear_long(volatile u_long *addr);
-u_int	atomic_readandclear_int(volatile u_int *addr);
-
-#else /* !KLD_MODULE */
 
 static __inline u_long
 atomic_readandclear_long(volatile u_long *addr)
@@ -206,8 +168,6 @@ atomic_readandclear_int(volatile u_int *addr)
 	return (res);
 }
 
-#endif /* KLD_MODULE */
-
 /*
  * atomic_poll_acquire_int(P)	Returns non-zero on success, 0 if the lock
  *				has already been acquired.
@@ -217,16 +177,6 @@ atomic_readandclear_int(volatile u_int *addr)
  * between cpus.  Both the acquisition and release must be 
  * cache-synchronizing instructions.
  */
-
-#if defined(KLD_MODULE)
-
-extern int atomic_swap_int(volatile int *addr, int value);
-extern long atomic_swap_long(volatile long *addr, long value);
-extern void *atomic_swap_ptr(volatile void **addr, void *value);
-extern int atomic_poll_acquire_int(volatile u_int *p);
-extern void atomic_poll_release_int(volatile u_int *p);
-
-#else
 
 static __inline int
 atomic_swap_int(volatile int *addr, int value)
@@ -266,8 +216,6 @@ atomic_poll_release_int(volatile u_int *p)
 {
 	__asm __volatile(MPLOCKED "btrl $0,%0" : "+m" (*p));
 }
-
-#endif
 
 /*
  * These functions operate on a 32 bit interrupt interlock which is defined
@@ -322,22 +270,7 @@ atomic_poll_release_int(volatile u_int *p)
  * atomic_intr_cond_dec(P)	Decrement wait counter by 1.
  */
 
-typedef volatile int    __atomic_intr_t;
-
-#if defined(KLD_MODULE)
-
-void atomic_intr_init(__atomic_intr_t *p);
-int atomic_intr_handler_disable(__atomic_intr_t *p);
-void atomic_intr_handler_enable(__atomic_intr_t *p);
-int atomic_intr_handler_is_enabled(__atomic_intr_t *p);
-int atomic_intr_cond_test(__atomic_intr_t *p);
-int atomic_intr_cond_try(__atomic_intr_t *p);
-void atomic_intr_cond_enter(__atomic_intr_t *p, void (*func)(void *), void *arg);
-void atomic_intr_cond_exit(__atomic_intr_t *p, void (*func)(void *), void *arg);
-void atomic_intr_cond_inc(__atomic_intr_t *p);
-void atomic_intr_cond_dec(__atomic_intr_t *p);
-
-#else
+typedef volatile int	__atomic_intr_t;
 
 static __inline void
 atomic_intr_init(__atomic_intr_t *p)
@@ -440,8 +373,6 @@ atomic_intr_cond_exit(__atomic_intr_t *p, void (*func)(void *), void *arg)
 		/* YYY the function call may clobber even more registers? */
 }
 
-#endif
-
 /*
  * Atomic compare and set
  *
@@ -451,41 +382,6 @@ atomic_intr_cond_exit(__atomic_intr_t *p, void (*func)(void *), void *arg)
  * allow the compiler to optimize the common case where the caller calls
  * these functions from inside a conditional.
  */
-#if defined(KLD_MODULE)
-
-extern int atomic_cmpxchg_int(volatile u_int *_dst, u_int _old, u_int _new);
-extern int atomic_cmpxchg_long_test(volatile u_long *_dst,
-			u_long _old, u_long _new);
-extern int atomic_cmpset_short(volatile u_short *_dst,
-			u_short _old, u_short _new);
-extern int atomic_cmpset_int(volatile u_int *_dst, u_int _old, u_int _new);
-extern int atomic_cmpset_int_xacquire(volatile u_int *_dst,
-			u_int _old, u_int _new);
-extern int atomic_cmpset_int_xrelease(volatile u_int *_dst,
-			u_int _old, u_int _new);
-extern int atomic_cmpset_long(volatile u_long *_dst, u_long _exp, u_long _src);
-extern int atomic_cmpset_long_xacquire(volatile u_long *_dst,
-			u_long _exp, u_long _src);
-extern int atomic_cmpset_long_xrelease(volatile u_long *_dst,
-			u_long _exp, u_long _src);
-
-extern int atomic_fcmpset_char(volatile u_char *_dst,
-			u_char *_old, u_char _new);
-extern int atomic_fcmpset_short(volatile u_short *_dst,
-			u_short *_old, u_short _new);
-extern int atomic_fcmpset_int(volatile u_int *_dst,
-			u_int *_old, u_int _new);
-extern int atomic_fcmpset_long(volatile u_long *_dst,
-			u_long *_exp, u_long _src);
-
-extern u_int atomic_fetchadd_int(volatile u_int *_p, u_int _v);
-extern u_int atomic_fetchadd_int_xacquire(volatile u_int *_p, u_int _v);
-extern u_int atomic_fetchadd_int_xrelease(volatile u_int *_p, u_int _v);
-extern u_long atomic_fetchadd_long(volatile u_long *_p, u_long _v);
-extern u_long atomic_fetchadd_long_xacquire(volatile u_long *_p, u_long _v);
-extern u_long atomic_fetchadd_long_xrelease(volatile u_long *_p, u_long _v);
-
-#else
 
 static __inline int
 atomic_cmpxchg_int(volatile u_int *_dst, u_int _old, u_int _new)
@@ -781,16 +677,6 @@ atomic_testandclear_long(volatile u_long *p, u_long v)
 	return (res);
 }
 
-#endif	/* KLD_MODULE */
-
-#if defined(KLD_MODULE)
-
-#define ATOMIC_STORE_LOAD(TYPE, LOP, SOP)			\
-extern u_##TYPE	atomic_load_acq_##TYPE(volatile u_##TYPE *p);	\
-extern void	atomic_store_rel_##TYPE(volatile u_##TYPE *p, u_##TYPE v);
-
-#else /* !KLD_MODULE */
-
 #define ATOMIC_STORE_LOAD(TYPE, LOP, SOP)		\
 static __inline u_##TYPE				\
 atomic_load_acq_##TYPE(volatile u_##TYPE *p)		\
@@ -818,8 +704,6 @@ atomic_store_rel_##TYPE(volatile u_##TYPE *p, u_##TYPE v)\
 	: "m" (*p));			/* 2 */		\
 }							\
 struct __hack
-
-#endif /* !KLD_MODULE */
 
 ATOMIC_STORE_LOAD(char, "cmpxchgb %b0,%1", "xchgb %b1,%0");
 ATOMIC_STORE_LOAD(short,"cmpxchgw %w0,%1", "xchgw %w1,%0");
