@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017 The DragonFly Project.  All rights reserved.
+ * Copyright (c) 2007 The DragonFly Project.  All rights reserved.
  *
  * This code is derived from software contributed to The DragonFly Project
  * by Matthew Dillon <dillon@backplane.com>
@@ -30,21 +30,39 @@
  * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT
  * OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
+ *
+ * $DragonFly: src/sys/vfs/hammer/hammer_mount.h,v 1.11 2008/09/17 21:44:20 dillon Exp $
  */
 
-#ifndef LIBC_GEN_UTIL_H_
-#define LIBC_GEN_UTIL_H_
+#ifndef VFS_HAMMER_MOUNT_H_
+#define VFS_HAMMER_MOUNT_H_
 
+#ifndef _SYS_TYPES_H_
 #include <sys/types.h>
+#endif
+#ifndef _SYS_MOUNT_H_
+#include <sys/mount.h>
+#endif
 
-#define GETDEVPATH_RAWDEV	0x0001
+/*
+ * This structure is passed from userland to the kernel during the mount
+ * system call.
+ */
+struct hammer_mount_info {
+	char		**volumes;	/* array of pointers to device names */
+	int		nvolumes;	/* number of devices */
+	int		hflags;		/* extended hammer mount flags */
+	int		master_id;	/* -1=no-mirror mode, or 0-15 */
+	uint64_t	asof;		/* asof - HAMMER_MAX_TID is current */
+	char		reserved1[136];	/* was struct export_args */
+	uint64_t	reserved2[15];
+};
 
-#define _PATH_DEVTAB_PATHS \
-	"/usr/local/etc:/etc:/etc/defaults"
+#define HMNT_NOHISTORY	0x00000001
+#define HMNT_MASTERID	0x00000002	/* master_id field set */
+#define HMNT_NOMIRROR	0x00000004	/* master_id field set to -1 */
+#define HMNT_UNDO_DIRTY	0x00000008
 
-char *getdevpath(const char *devname, int flags);
-int sysctlbyname(const char *name, void *oldp, size_t *oldlenp,
-		const void *newp, size_t newlen);
-void setproctitle(const char *fmt, ...);
+#define HMNT_USERFLAGS	(HMNT_NOHISTORY | HMNT_MASTERID | HMNT_NOMIRROR)
 
-#endif /* !LIBC_GEN_UTIL_H_ */
+#endif /* !VFS_HAMMER_MOUNT_H_ */

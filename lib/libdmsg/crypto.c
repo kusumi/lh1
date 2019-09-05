@@ -218,7 +218,7 @@ dmsg_crypto_gcm_encrypt_chunk(dmsg_ioq_t *ioq, char *ct, char *pt,
 		goto fail;
 
 	f_len = 0;	/* safety */
-	ok = EVP_EncryptFinal(ioq->ctx, (unsigned char*)ct + u_len, &f_len);
+	ok = EVP_EncryptFinal_ex(ioq->ctx, (unsigned char*)ct + u_len, &f_len);
 	if (!ok)
 		goto fail;
 
@@ -236,12 +236,14 @@ dmsg_crypto_gcm_encrypt_chunk(dmsg_ioq_t *ioq, char *ct, char *pt,
 	}
 
 	*out_size = u_len + f_len + DMSG_CRYPTO_GCM_TAG_SIZE;
+	//EVP_CIPHER_CTX_reset(&ioq->ctx); // XXX
 
 	return 0;
 
 fail:
 	ioq->error = DMSG_IOQ_ERROR_ALGO;
 fail_out:
+	//EVP_CIPHER_CTX_reset(&ioq->ctx); // XXX
 	dm_printf(1, "%s\n", "error during encrypt_chunk");
 	return -1;
 }
@@ -277,7 +279,7 @@ dmsg_crypto_gcm_decrypt_chunk(dmsg_ioq_t *ioq, char *ct, char *pt,
 	if (!ok)
 		goto fail;
 
-	ok = EVP_DecryptFinal(ioq->ctx, (unsigned char*)pt + u_len, &f_len);
+	ok = EVP_DecryptFinal_ex(ioq->ctx, (unsigned char*)pt + u_len, &f_len);
 	if (!ok)
 		goto fail;
 
@@ -288,12 +290,14 @@ dmsg_crypto_gcm_decrypt_chunk(dmsg_ioq_t *ioq, char *ct, char *pt,
 	}
 
 	*consume_size = u_len + f_len + DMSG_CRYPTO_GCM_TAG_SIZE;
+	//EVP_CIPHER_CTX_reset(&ioq->ctx); // XXX
 
 	return 0;
 
 fail:
 	ioq->error = DMSG_IOQ_ERROR_MACFAIL;
 fail_out:
+	//EVP_CIPHER_CTX_reset(&ioq->ctx); // XXX
 	dm_printf(1, "%s\n",
 		  "error during decrypt_chunk "
 		  "(likely authentication error)");

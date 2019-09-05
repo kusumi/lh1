@@ -42,6 +42,7 @@ struct hammer2_media_config {
 	hammer2_volconf_t	copy_run;
 	hammer2_volconf_t	copy_pend;
 	pthread_t		thread;
+	int			thread_started;
 	pthread_cond_t		cond;
 	int			ctl;
 	int			fd;
@@ -220,7 +221,7 @@ service_thread(void *data)
 	/*
 	 * Nobody waits for us
 	 */
-	//setproctitle("hammer2 master listen"); // XXX
+	setproctitle("hammer2 master listen");
 	pthread_detach(pthread_self());
 
 	/*
@@ -323,6 +324,7 @@ hammer2_usrmsg_handler(dmsg_msg_t *msg, int unmanaged)
 		for (i = 0; i < HAMMER2_COPYID_COUNT; ++i) {
 			if (conf[i].thread) {
 				pthread_join(conf[i].thread, NULL);
+				conf->thread_started = 0;
 				pthread_cond_destroy(&conf[i].cond);
 			}
 		}
@@ -362,11 +364,12 @@ hammer2_usrmsg_handler(dmsg_msg_t *msg, int unmanaged)
 		conf->copy_pend = msgconf->copy;
 		conf->ctl |= H2CONFCTL_UPDATE;
 		pthread_mutex_unlock(&confmtx);
-		if (1 /* conf->thread == NULL */) { // XXX
+		if (conf->thread_started == 0) {
 			fprintf(stderr, "VOLCONF THREAD STARTED\n");
 			pthread_cond_init(&conf->cond, NULL);
 			pthread_create(&conf->thread, NULL,
 				       hammer2_volconf_thread, (void *)conf);
+			conf->thread_started = 1;
 		}
 		pthread_cond_signal(&conf->cond);
 		break;
@@ -382,7 +385,7 @@ hammer2_volconf_thread(void *info)
 {
 	hammer2_media_config_t *conf = info;
 
-	//setproctitle("hammer2 volconf"); // XXX
+	setproctitle("hammer2 volconf");
 
 	pthread_mutex_lock(&confmtx);
 	while ((conf->ctl & H2CONFCTL_STOP) == 0) {
@@ -497,7 +500,7 @@ udev_thread(void *data __unused)
 	//int	seq = 0;
 
 	pthread_detach(pthread_self());
-	//setproctitle("hammer2 udev_thread"); // XXX
+	setproctitle("hammer2 udev_thread");
 
 	if ((fd = open(UDEV_DEVICE_PATH, O_RDWR)) < 0) {
 		fprintf(stderr, "udev_thread: unable to open \"%s\"\n",
@@ -537,7 +540,7 @@ autoconn_thread(void *data __unused)
 	lmod = 0;
 
 	pthread_detach(pthread_self());
-	//setproctitle("hammer2 autoconn_thread"); // XXX
+	setproctitle("hammer2 autoconn_thread");
 	for (;;) {
 		/*
 		 * Polling interval
@@ -699,7 +702,7 @@ autoconn_connect_thread(void *data)
 
 	ac = data;
 	pthread_detach(pthread_self());
-	//setproctitle("hammer2 dmsg"); // XXX
+	setproctitle("hammer2 dmsg");
 
 	while (ac->stopme == 0) {
 		fd = dmsg_connect(ac->host);

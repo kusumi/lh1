@@ -1,9 +1,9 @@
-SRCS1=	hexdump.c pidfile.c flopen.c humanize_unsigned.c realhostname.c trimdomain.c
+SRCS1=	hexdump.c pidfile.c flopen.c humanize_unsigned.c realhostname.c trimdomain.c getmntopts.c
 
 OBJS1 := $(SRCS1:.c=.o)
 
 CC=	gcc
-CFLAGS+= -I. -Wall -g
+CFLAGS+= -I. -I../../include -Wall -g
 
 .PHONY: all clean
 

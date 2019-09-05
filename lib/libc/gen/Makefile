@@ -1,4 +1,4 @@
-SRCS1=	getdevpath.c sysctlbyname.c
+SRCS1=	getdevpath.c sysctlbyname.c setproctitle.c
 
 OBJS1 := $(SRCS1:.c=.o)
 

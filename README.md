@@ -1,4 +1,4 @@
-lh1 - Linux HAMMER (v0.1.7)
+lh1 - Linux HAMMER (v0.1.8)
 ===
 
 ## About
@@ -6,6 +6,8 @@ lh1 - Linux HAMMER (v0.1.7)
 + HAMMER1/2 userspace utilities on Linux / x86_64.
 
 ## Changes
+
++ 2019.09.05 / v0.1.8 - Sync with DragonFly BSD.
 
 + 2019.08.20 / v0.1.7 - Sync with DragonFly BSD.
 
@@ -27,8 +29,10 @@ lh1 - Linux HAMMER (v0.1.7)
 |:---------------|:-----------------------------------------------|
 |hammer(8)       |HAMMER filesystem utility                       |
 |newfs_hammer(8) |construct a new HAMMER filesystem               |
+|mount_hammer(8) |mount a HAMMER file system                      |
 |hammer2(8)      |HAMMER2 filesystem utility                      |
 |newfs_hammer2(8)|construct a new HAMMER2 filesystem              |
+|mount_hammer2(8)|mount a HAMMER2 file system                     |
 |undo(1)         |undo changes made to files on HAMMER filesystems|
 |fstyp(8)        |determine filesystem type                       |
 

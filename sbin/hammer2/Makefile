@@ -12,7 +12,7 @@ CFLAGS+= -DXXH_NAMESPACE=h2_
 
 all: $(PROG)
 $(PROG): $(OBJS) ../../lib/libc/gen ../../lib/libc/string ../../lib/libutil ../../lib/libdmsg ../../sys/vfs/hammer2/xxhash
-	$(CC) $(CFLAGS) -o $@ $(OBJS) ../../lib/libc/gen/sysctlbyname.o ../../lib/libc/string/strlcpy.o ../../lib/libutil/trimdomain.o ../../lib/libutil/realhostname.o ../../lib/libdmsg/crypto.o ../../lib/libdmsg/debug.o ../../lib/libdmsg/icrc.o ../../lib/libdmsg/msg.o ../../lib/libdmsg/msg_lnk.o ../../lib/libdmsg/service.o ../../lib/libdmsg/subs.o ../../lib/libdmsg/uuid.o ../../sys/vfs/hammer2/xxhash/xxhash.o -lm -luuid -lpthread -lssl -lcrypto
+	$(CC) $(CFLAGS) -o $@ $(OBJS) ../../lib/libc/gen/sysctlbyname.o ../../lib/libc/gen/setproctitle.c ../../lib/libc/string/strlcpy.o ../../lib/libutil/trimdomain.o ../../lib/libutil/realhostname.o ../../lib/libdmsg/crypto.o ../../lib/libdmsg/debug.o ../../lib/libdmsg/icrc.o ../../lib/libdmsg/msg.o ../../lib/libdmsg/msg_lnk.o ../../lib/libdmsg/service.o ../../lib/libdmsg/subs.o ../../lib/libdmsg/uuid.o ../../sys/vfs/hammer2/xxhash/xxhash.o -lm -luuid -lpthread -lssl -lcrypto
 .c.o:
 	$(CC) $(CFLAGS) -c $<
 clean:
