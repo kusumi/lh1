@@ -38,7 +38,7 @@
 #include <byteswap.h>
 #include <uuid/uuid.h>
 
-#include "hammer2.h"
+#include "hammer2_subs.h"
 
 /*
  * See also:
@@ -99,6 +99,20 @@ int hammer2_uuid_name_lookup(hammer2_uuid_t *uuid, const char *str)
 		memset(uuid, 0, sizeof(*uuid));
 		return(-1);
 	}
+
+	return(0);
+}
+
+int hammer2_uuid_addr_lookup(const hammer2_uuid_t *uuid, char **str)
+{
+	hammer2_uuid_t tmp;
+
+	if (hammer2_uuid_from_string(HAMMER2_UUID_STRING, &tmp) ||
+	    memcmp(uuid, &tmp, sizeof(tmp))) {
+		*str = NULL;
+		return(-1);
+	}
+	*str = strdup("DragonFly HAMMER2");
 
 	return(0);
 }

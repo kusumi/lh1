@@ -1,8 +1,8 @@
 /*
- * Copyright (c) 2017 The DragonFly Project.  All rights reserved.
+ * Copyright (c) 2019 The DragonFly Project.  All rights reserved.
  *
  * This code is derived from software contributed to The DragonFly Project
- * by Matthew Dillon <dillon@backplane.com>
+ * by Matthew Dillon <dillon@dragonflybsd.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -32,13 +32,33 @@
  * SUCH DAMAGE.
  */
 
-#ifndef HAMMER2_UTIL_H_
-#define HAMMER2_UTIL_H_
+#include "hammer2.h"
 
-#include <vfs/hammer2/hammer2_disk.h>
+int cmd_emergency_mode(const char *sel_path __unused, int enable,
+		       int ac, const char **av)
+{
+	int error = 0;
+	int fd;
 
-void hammer2_uuid_create(hammer2_uuid_t *uuid);
-int hammer2_uuid_from_string(const char *str, hammer2_uuid_t *uuid);
-int hammer2_uuid_to_string(const hammer2_uuid_t *uuid, char **str);
+	if (ac != 1) {
+		fprintf(stderr, "Expected <filesystem> argument\n");
+		return 1;
+	}
+	fd = open(av[0], O_RDONLY);
+	if (fd < 0) {
+		fprintf(stderr, "Unable to find \"%s\"\n", av[0]);
+		return 1;
+	}
+	if (ioctl(fd, HAMMER2IOC_EMERG_MODE, &enable) == 0) {
+		if (enable)
+			printf("Emergency mode on \"%s\" enabled\n", av[0]);
+		else
+			printf("Emergency mode on \"%s\" disabled\n", av[0]);
+	} else {
+		printf("Cannot change emerg mode: %s\n", strerror(errno));
+		error = 1;
+	}
+	close(fd);
 
-#endif /* !HAMMER2_UTIL_H_ */
+	return error;
+}

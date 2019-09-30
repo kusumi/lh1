@@ -36,6 +36,8 @@
 #ifndef _VFS_HAMMER2_IOCTL_H_
 #define _VFS_HAMMER2_IOCTL_H_
 
+#include <linux/limits.h>
+
 #ifndef _SYS_IOCCOM_H_
 //#include <sys/ioccom.h>
 #endif
@@ -176,16 +178,16 @@ typedef struct hammer2_ioc_destroy hammer2_ioc_destroy_t;
 #define HAMMER2IOC_INODE_GET	_IOWR('h', 86, struct hammer2_ioc_inode)
 #define HAMMER2IOC_INODE_SET	_IOWR('h', 87, struct hammer2_ioc_inode)
 
-/*#define HAMMER2IOC_INODE_COMP_SET	_IOWR('h', 88, struct hammer2_ioc_inode) //set compression mode on inode
-#define HAMMER2IOC_INODE_COMP_REC_SET	_IOWR('h', 89, struct hammer2_ioc_inode)
-#define HAMMER2IOC_INODE_COMP_REC_SET2	_IOWR('h', 90, struct hammer2_ioc_inode)*/
+/*
+ * 88, 89, 90 - old copmression ioctls, now reserved
+ *
+ * 94 - note that this deletes a directory entry or inode number
+ *	unconditionally.
+ */
 #define HAMMER2IOC_DEBUG_DUMP	_IOWR('h', 91, int)
 #define HAMMER2IOC_BULKFREE_SCAN _IOWR('h', 92, struct hammer2_ioc_bulkfree)
 #define HAMMER2IOC_BULKFREE_ASYNC _IOWR('h', 93, struct hammer2_ioc_bulkfree)
-
-/*
- * Delete a directory entry or inode number unconditionally.
- */
 #define HAMMER2IOC_DESTROY	_IOWR('h', 94, struct hammer2_ioc_destroy)
+#define HAMMER2IOC_EMERG_MODE	_IOWR('h', 95, int)
 
 #endif /* !_VFS_HAMMER2_IOCTL_H_ */

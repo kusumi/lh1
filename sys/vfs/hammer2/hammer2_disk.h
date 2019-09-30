@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011-2018 The DragonFly Project.  All rights reserved.
+ * Copyright (c) 2011-2019 The DragonFly Project.  All rights reserved.
  *
  * This code is derived from software contributed to The DragonFly Project
  * by Matthew Dillon <dillon@dragonflybsd.org>
@@ -743,6 +743,7 @@ typedef struct hammer2_blockref hammer2_blockref_t;
 
 #define HAMMER2_BREF_FLAG_PFSROOT	0x01	/* see also related opflag */
 #define HAMMER2_BREF_FLAG_ZERO		0x02
+#define HAMMER2_BREF_FLAG_EMERG_MIP	0x04	/* emerg modified-in-place */
 
 /*
  * Encode/decode check mode and compression mode for

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011-2012 The DragonFly Project.  All rights reserved.
+ * Copyright (c) 2019 The DragonFly Project.  All rights reserved.
  *
  * This code is derived from software contributed to The DragonFly Project
  * by Matthew Dillon <dillon@dragonflybsd.org>
@@ -32,47 +32,36 @@
  * SUCH DAMAGE.
  */
 
+#ifndef HAMMER2_HAMMER2_SUBS_H_
+#define HAMMER2_HAMMER2_SUBS_H_
+
 #include <sys/types.h>
-#include <sys/stat.h> // before <sys/dfly.h>, <sys/tree.h>, <sys/dmsg.h>
-#include <netdb.h> // before <sys/dfly.h>, <sys/tree.h>, <sys/dmsg.h>
-#include <sys/queue.h>
-#include <sys/tree.h>
-#include <sys/file.h>
-#include <sys/socket.h>
-#include <sys/dmsg.h>
-#include <sys/poll.h>
-#include <sys/uio.h>
-#include <sys/dfly.h>
-
-#include <netinet/in.h>
-#include <netinet/ip.h>
-#include <netinet/tcp.h>
-#include <arpa/inet.h>
-
-#include <assert.h>
-#include <pthread.h>
-#include <libutil.h>
-
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
 #include <uuid/uuid.h>
-#include <time.h>
 
-#include <openssl/rsa.h>	/* public/private key functions */
-#include <openssl/pem.h>	/* public/private key file load */
-#include <openssl/err.h>
-#include <openssl/evp.h>	/* aes_256_cbc functions */
-
-#include <machine/atomic.h>
-#include <byteswap.h>
-
-#include "dmsg.h"
+#include <vfs/hammer2/hammer2_disk.h>
 
 /*
- * Define prototypes here to prevent conflict with hammer2.h.
- * The real problem is that there is no userspace header for these two.
+ * Misc functions
  */
+int hammer2_ioctl_handle(const char *sel_path);
+const char *hammer2_time64_to_str(uint64_t htime64, char **strp);
+const char *hammer2_uuid_to_str(hammer2_uuid_t *uuid, char **strp);
+const char *hammer2_iptype_to_str(uint8_t type);
+const char *hammer2_pfstype_to_str(uint8_t type);
+const char *sizetostr(hammer2_off_t size);
+const char *counttostr(hammer2_off_t size);
+hammer2_key_t dirhash(const unsigned char *name, size_t len);
+
+#define hammer2_icrc32(buf, size)	iscsi_crc32((buf), (size))
+#define hammer2_icrc32c(buf, size, crc)	iscsi_crc32_ext((buf), (size), (crc))
 uint32_t iscsi_crc32(const void *buf, size_t size);
 uint32_t iscsi_crc32_ext(const void *buf, size_t size, uint32_t ocrc);
+
+void hammer2_uuid_create(hammer2_uuid_t *uuid);
+int hammer2_uuid_from_string(const char *str, hammer2_uuid_t *uuid);
+int hammer2_uuid_to_string(const hammer2_uuid_t *uuid, char **str);
+int hammer2_uuid_name_lookup(hammer2_uuid_t *uuid, const char *str);
+int hammer2_uuid_addr_lookup(const hammer2_uuid_t *uuid, char **str);
+int hammer2_uuid_compare(const hammer2_uuid_t *uuid1, const hammer2_uuid_t *uuid2);
+
+#endif /* !HAMMER2_HAMMER2_SUBS_H_ */

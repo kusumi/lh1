@@ -90,6 +90,8 @@
 
 #include <libutil.h>
 
+#include "hammer2_subs.h"
+
 #include "../lib/libc/gen/util.h"
 
 #define HAMMER2_DEFAULT_DIR	"/etc/hammer2"
@@ -128,7 +130,6 @@ extern size_t MemOpt;
 /*
  * Hammer2 command APIs
  */
-int hammer2_ioctl_handle(const char *sel_path);
 void hammer2_demon(void *(*func)(void *), void *arg);
 
 int cmd_remote_connect(const char *sel_path, const char *url);
@@ -155,7 +156,9 @@ int cmd_debugspan(const char *hostname);
 int cmd_destroy_path(int ac, const char **av);
 int cmd_destroy_inum(const char *sel_path, int ac, const char **av);
 int cmd_dumpchain(const char *path, u_int flags);
-int cmd_show(const char *devpath, int dofreemap);
+int cmd_emergency_mode(const char *sel_path, int enable,
+			int ac, const char **av);
+int cmd_show(const char *devpath, int which);
 int cmd_rsainit(const char *dir_path);
 int cmd_rsaenc(const char **keys, int nkeys);
 int cmd_rsadec(const char **keys, int nkeys);
@@ -167,27 +170,7 @@ int cmd_cleanup(const char *dir_path);
 int cmd_bulkfree_async(const char *dir_path);
 #endif
 
-/*
- * Misc functions
- */
-const char *hammer2_time64_to_str(uint64_t htime64, char **strp);
-const char *hammer2_uuid_to_str(hammer2_uuid_t *uuid, char **strp);
-const char *hammer2_iptype_to_str(uint8_t type);
-const char *hammer2_pfstype_to_str(uint8_t type);
-const char *sizetostr(hammer2_off_t size);
-const char *counttostr(hammer2_off_t size);
-hammer2_key_t dirhash(const unsigned char *name, size_t len);
-
-uint32_t hammer2_icrc32(const void *buf, size_t size);
-uint32_t hammer2_icrc32c(const void *buf, size_t size, uint32_t crc);
-
 void hammer2_shell_parse(dmsg_msg_t *msg, int unmanaged);
 void print_inode(const char *path);
-
-void hammer2_uuid_create(hammer2_uuid_t *uuid);
-int hammer2_uuid_from_string(const char *str, hammer2_uuid_t *uuid);
-int hammer2_uuid_to_string(const hammer2_uuid_t *uuid, char **str);
-int hammer2_uuid_name_lookup(hammer2_uuid_t *uuid, const char *str);
-int hammer2_uuid_compare(const hammer2_uuid_t *uuid1, const hammer2_uuid_t *uuid2);
 
 #endif /* !HAMMER2_HAMMER2_H_ */

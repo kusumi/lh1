@@ -1,6 +1,6 @@
-PROG=	newfs_hammer2
+PROG=	fsck_hammer2
 
-SRCS=	$(PROG).c
+SRCS=	$(PROG).c test.c
 
 OBJS := $(SRCS:.c=.o)
 
@@ -11,8 +11,8 @@ CFLAGS+= -DXXH_NAMESPACE=h2_
 .PHONY: all clean
 
 all: $(PROG)
-$(PROG): $(OBJS) ../hammer2/ ../../lib/libc/gen/ ../../sys/libkern/ ../../sys/vfs/hammer2/xxhash
-	$(CC) $(CFLAGS) -o $@ $(OBJS) ../hammer2/uuid.o ../hammer2/subs.o ../../lib/libc/gen/sysctlbyname.o ../../sys/libkern/icrc32.o ../../sys/vfs/hammer2/xxhash/xxhash.o -luuid
+$(PROG): $(OBJS) ../hammer2/ ../../sys/libkern/ ../../sys/vfs/hammer2/xxhash
+	$(CC) $(CFLAGS) -o $@ $(OBJS) ../hammer2/uuid.o ../hammer2/subs.o ../../sys/libkern/icrc32.o ../../sys/vfs/hammer2/xxhash/xxhash.o -luuid -lcrypto
 .c.o:
 	$(CC) $(CFLAGS) -c $<
 clean:

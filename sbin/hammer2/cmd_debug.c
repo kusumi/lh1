@@ -35,11 +35,16 @@
 
 #include "hammer2.h"
 
+#include <openssl/sha.h>
+
+#define GIG	(1024LL*1024*1024)
+#define arysize(ary)	(sizeof(ary) / sizeof((ary)[0]))
+
 static int show_tab = 2;
 
 static void shell_msghandler(dmsg_msg_t *msg, int unmanaged);
 static void shell_ttymsg(dmsg_iocom_t *iocom);
-static void CountFreeBlocks(hammer2_bmap_data_t *bmap,
+static void CountBlocks(hammer2_bmap_data_t *bmap, int value,
 		hammer2_off_t *accum16, hammer2_off_t *accum64);
 
 /************************************************************************
@@ -374,27 +379,31 @@ cmd_debugspan(const char *hostname)
  *				    SHOW				*
  ************************************************************************/
 
+static void show_volhdr(hammer2_volume_data_t *voldata, int fd, int bi);
 static void show_bref(hammer2_volume_data_t *voldata, int fd, int tab,
-			int bi, hammer2_blockref_t *bref,
-			int dofreemap, int norecurse);
+			int bi, hammer2_blockref_t *bref, int norecurse);
 static void tabprintf(int tab, const char *ctl, ...);
 
-static hammer2_off_t TotalFreeAccum16;
-static hammer2_off_t TotalFreeAccum64;
+static hammer2_off_t TotalAccum16[4]; /* includes TotalAccum64 */
+static hammer2_off_t TotalAccum64[4];
+static hammer2_off_t TotalUnavail;
+static hammer2_off_t TotalFreemap;
 
 int
-cmd_show(const char *devpath, int dofreemap)
+cmd_show(const char *devpath, int which)
 {
 	hammer2_blockref_t broot;
 	hammer2_blockref_t best;
 	hammer2_media_data_t media;
+	hammer2_media_data_t best_media;
 	int fd;
 	int i;
 	int best_i;
 	char *env;
 
-	TotalFreeAccum16 = 0;	/* includes TotalFreeAccum64 */
-	TotalFreeAccum64 = 0;
+	memset(TotalAccum16, 0, sizeof(TotalAccum16));
+	memset(TotalAccum64, 0, sizeof(TotalAccum64));
+	TotalUnavail = TotalFreemap = 0;
 
 	env = getenv("HAMMER2_SHOW_TAB");
 	if (env != NULL) {
@@ -415,54 +424,251 @@ cmd_show(const char *devpath, int dofreemap)
 	 */
 	best_i = -1;
 	bzero(&best, sizeof(best));
+	bzero(&best_media, sizeof(best_media));
 	for (i = 0; i < HAMMER2_NUM_VOLHDRS; ++i) {
 		bzero(&broot, sizeof(broot));
-		broot.type = dofreemap ?
-		    HAMMER2_BREF_TYPE_FREEMAP : HAMMER2_BREF_TYPE_VOLUME;
 		broot.data_off = (i * HAMMER2_ZONE_BYTES64) | HAMMER2_PBUFRADIX;
-		lseek(fd, broot.data_off & ~HAMMER2_OFF_MASK_RADIX, 0);
+		lseek(fd, broot.data_off & ~HAMMER2_OFF_MASK_RADIX, SEEK_SET);
 		if (read(fd, &media, HAMMER2_PBUFSIZE) ==
 		    (ssize_t)HAMMER2_PBUFSIZE) {
 			broot.mirror_tid = media.voldata.mirror_tid;
 			if (best_i < 0 || best.mirror_tid < broot.mirror_tid) {
 				best_i = i;
 				best = broot;
+				best_media = media;
 			}
-			if (VerboseOpt >= 3)
-				show_bref(&media.voldata, fd, 0, i, &broot,
-				    dofreemap, 0);
+			printf("Volume header %d: mirror_tid=%016jx\n",
+			       i, (intmax_t)broot.mirror_tid);
+
+			if (VerboseOpt >= 3) {
+				switch(which) {
+				case 0:
+					broot.type = HAMMER2_BREF_TYPE_VOLUME;
+					show_bref(&media.voldata, fd, 0,
+						  i, &broot, 0);
+					break;
+				case 1:
+					broot.type = HAMMER2_BREF_TYPE_FREEMAP;
+					show_bref(&media.voldata, fd, 0,
+						  i, &broot, 0);
+					break;
+				default:
+					show_volhdr(&media.voldata, fd, i);
+					break;
+				}
+				printf("\n");
+			}
 		}
 	}
-	if (VerboseOpt < 3)
-		show_bref(&media.voldata, fd, 0, best_i, &best, dofreemap, 0);
+	if (VerboseOpt < 3) {
+		switch(which) {
+		case 0:
+			best.type = HAMMER2_BREF_TYPE_VOLUME;
+			show_bref(&best_media.voldata, fd, 0, best_i, &best, 0);
+			break;
+		case 1:
+			best.type = HAMMER2_BREF_TYPE_FREEMAP;
+			show_bref(&best_media.voldata, fd, 0, best_i, &best, 0);
+			break;
+		default:
+			show_volhdr(&best_media.voldata, fd, best_i);
+			break;
+		}
+	}
 	close(fd);
 
-	if (dofreemap && VerboseOpt < 3) {
-		printf("Total free storage: %6.3fGB (%6.3fGB in 64KB chunks)\n",
-		       (double)TotalFreeAccum16 / (1024.0 * 1024.0 * 1024.0),
-		       (double)TotalFreeAccum64 / (1024.0 * 1024.0 * 1024.0));
+	if (which == 1 && VerboseOpt < 3) {
+		printf("Total unallocated storage:   %6.3fGiB (%6.3fGiB in 64KB chunks)\n",
+		       (double)TotalAccum16[0] / GIG,
+		       (double)TotalAccum64[0] / GIG);
+		printf("Total possibly free storage: %6.3fGiB (%6.3fGiB in 64KB chunks)\n",
+		       (double)TotalAccum16[2] / GIG,
+		       (double)TotalAccum64[2] / GIG);
+		printf("Total allocated storage:     %6.3fGiB (%6.3fGiB in 64KB chunks)\n",
+		       (double)TotalAccum16[3] / GIG,
+		       (double)TotalAccum64[3] / GIG);
+		printf("Total unavailable storage:   %6.3fGiB\n",
+		       (double)TotalUnavail / GIG);
+		printf("Total freemap storage:       %6.3fGiB\n",
+		       (double)TotalFreemap / GIG);
 	}
 
 	return 0;
 }
 
 static void
+show_volhdr(hammer2_volume_data_t *voldata, int fd, int bi)
+{
+	uint32_t i;
+	char *str;
+	char *name;
+
+	printf("\nVolume header %d {\n", bi);
+	printf("    magic          0x%016jx\n", (intmax_t)voldata->magic);
+	printf("    boot_beg       0x%016jx\n", (intmax_t)voldata->boot_beg);
+	printf("    boot_end       0x%016jx (%6.2fMB)\n",
+	       (intmax_t)voldata->boot_end,
+	       (double)(voldata->boot_end - voldata->boot_beg) /
+	       (1024.0*1024.0));
+	printf("    aux_beg        0x%016jx\n", (intmax_t)voldata->aux_beg);
+	printf("    aux_end        0x%016jx (%6.2fMB)\n",
+	       (intmax_t)voldata->aux_end,
+	       (double)(voldata->aux_end - voldata->aux_beg) /
+	       (1024.0*1024.0));
+	printf("    volu_size      0x%016jx (%6.2fGiB)\n",
+	       (intmax_t)voldata->volu_size,
+	       (double)voldata->volu_size / GIG);
+	printf("    version        %d\n", voldata->version);
+	printf("    flags          0x%08x\n", voldata->flags);
+	printf("    copyid         %d\n", voldata->copyid);
+	printf("    freemap_vers   %d\n", voldata->freemap_version);
+	printf("    peer_type      %d\n", voldata->peer_type);
+
+	str = NULL;
+	hammer2_uuid_to_str(&voldata->fsid, &str);
+	printf("    fsid           %s\n", str);
+	free(str);
+
+	str = NULL;
+	name = NULL;
+	hammer2_uuid_to_str(&voldata->fstype, &str);
+	printf("    fstype         %s\n", str);
+	hammer2_uuid_addr_lookup(&voldata->fstype, &name);
+	if (name == NULL)
+		name = strdup("?");
+	printf("                   (%s)\n", name);
+	free(name);
+	free(str);
+
+	printf("    allocator_size 0x%016jx (%6.2fGiB)\n",
+	       voldata->allocator_size,
+	       (double)voldata->allocator_size / GIG);
+	printf("    allocator_free 0x%016jx (%6.2fGiB)\n",
+	       voldata->allocator_free,
+	       (double)voldata->allocator_free / GIG);
+	printf("    allocator_beg  0x%016jx (%6.2fGiB)\n",
+	       voldata->allocator_beg,
+	       (double)voldata->allocator_beg / GIG);
+
+	printf("    mirror_tid     0x%016jx\n", voldata->mirror_tid);
+	printf("    reserved0080   0x%016jx\n", voldata->reserved0080);
+	printf("    reserved0088   0x%016jx\n", voldata->reserved0088);
+	printf("    freemap_tid    0x%016jx\n", voldata->freemap_tid);
+	for (i = 0; i < arysize(voldata->reserved00A0); ++i) {
+		printf("    reserved00A0/%u 0x%016jx\n",
+		       i, voldata->reserved00A0[0]);
+	}
+
+	printf("    copyexists    ");
+	for (i = 0; i < arysize(voldata->copyexists); ++i)
+		printf(" 0x%02x", voldata->copyexists[i]);
+	printf("\n");
+
+	/*
+	 * NOTE: Index numbers and ICRC_SECTn definitions are not matched,
+	 *	 the ICRC for sector 0 actually uses the last index, for
+	 *	 example.
+	 *
+	 * NOTE: The whole voldata CRC does not have to match critically
+	 *	 as certain sub-areas of the volume header have their own
+	 *	 CRCs.
+	 */
+	printf("\n");
+	for (i = 0; i < arysize(voldata->icrc_sects); ++i) {
+		printf("    icrc_sects[%u]  ", i);
+		switch(i) {
+		case HAMMER2_VOL_ICRC_SECT0:
+			printf("0x%08x/0x%08x",
+			       hammer2_icrc32((char *)voldata +
+					      HAMMER2_VOLUME_ICRC0_OFF,
+					      HAMMER2_VOLUME_ICRC0_SIZE),
+			       voldata->icrc_sects[HAMMER2_VOL_ICRC_SECT0]);
+			if (hammer2_icrc32((char *)voldata +
+					   HAMMER2_VOLUME_ICRC0_OFF,
+					   HAMMER2_VOLUME_ICRC0_SIZE) ==
+			       voldata->icrc_sects[HAMMER2_VOL_ICRC_SECT0]) {
+				printf(" (OK)");
+			} else {
+				printf(" (FAILED)");
+			}
+			break;
+		case HAMMER2_VOL_ICRC_SECT1:
+			printf("0x%08x/0x%08x",
+			       hammer2_icrc32((char *)voldata +
+					      HAMMER2_VOLUME_ICRC1_OFF,
+					      HAMMER2_VOLUME_ICRC1_SIZE),
+			       voldata->icrc_sects[HAMMER2_VOL_ICRC_SECT1]);
+			if (hammer2_icrc32((char *)voldata +
+					   HAMMER2_VOLUME_ICRC1_OFF,
+					   HAMMER2_VOLUME_ICRC1_SIZE) ==
+			       voldata->icrc_sects[HAMMER2_VOL_ICRC_SECT1]) {
+				printf(" (OK)");
+			} else {
+				printf(" (FAILED)");
+			}
+
+			break;
+		default:
+			printf("0x%08x (reserved)", voldata->icrc_sects[i]);
+			break;
+		}
+		printf("\n");
+	}
+	printf("    icrc_volhdr    0x%08x/0x%08x",
+	       hammer2_icrc32((char *)voldata + HAMMER2_VOLUME_ICRCVH_OFF,
+			      HAMMER2_VOLUME_ICRCVH_SIZE),
+	       voldata->icrc_volheader);
+	if (hammer2_icrc32((char *)voldata + HAMMER2_VOLUME_ICRCVH_OFF,
+			   HAMMER2_VOLUME_ICRCVH_SIZE) ==
+	    voldata->icrc_volheader) {
+		printf(" (OK)\n");
+	} else {
+		printf(" (FAILED - not a critical error)\n");
+	}
+
+	/*
+	 * The super-root and freemap blocksets (not recursed)
+	 */
+	printf("\n");
+	printf("    sroot_blockset {\n");
+	for (i = 0; i < HAMMER2_SET_COUNT; ++i) {
+		show_bref(voldata, fd, 16, i,
+			  &voldata->sroot_blockset.blockref[i], 2);
+	        printf("\n");
+	}
+	printf("    }\n");
+
+	printf("    freemap_blockset {\n");
+	for (i = 0; i < HAMMER2_SET_COUNT; ++i) {
+		show_bref(voldata, fd, 16, i,
+			  &voldata->freemap_blockset.blockref[i], 2);
+	        printf("\n");
+	}
+	printf("    }\n");
+
+	printf("}\n");
+}
+
+static void
 show_bref(hammer2_volume_data_t *voldata, int fd, int tab,
-	  int bi, hammer2_blockref_t *bref, int dofreemap, int norecurse)
+	  int bi, hammer2_blockref_t *bref, int norecurse)
 {
 	hammer2_media_data_t media;
 	hammer2_blockref_t *bscan;
 	hammer2_off_t tmp;
-	int bcount;
-	int i;
-	int namelen;
-	int obrace = 1;
-	int failed;
+	int i, bcount, namelen, failed, obrace;
+	int type_pad;
 	size_t bytes;
 	const char *type_str;
 	char *str = NULL;
 	uint32_t cv;
 	uint64_t cv64;
+
+	SHA256_CTX hash_ctx;
+	union {
+		uint8_t digest[SHA256_DIGEST_LENGTH];
+		uint64_t digest64[SHA256_DIGEST_LENGTH/8];
+	} u;
 
 	bytes = (bref->data_off & HAMMER2_OFF_MASK_RADIX);
 	if (bytes)
@@ -486,7 +692,7 @@ show_bref(hammer2_volume_data_t *voldata, int fd, int tab,
 			return;
 		}
 		if (bref->type != HAMMER2_BREF_TYPE_DATA || VerboseOpt >= 1) {
-			lseek(fd, io_base, 0);
+			lseek(fd, io_base, SEEK_SET);
 			if (read(fd, &media, io_bytes) != (ssize_t)io_bytes) {
 				printf("(media read failed)\n");
 				return;
@@ -500,6 +706,7 @@ show_bref(hammer2_volume_data_t *voldata, int fd, int tab,
 	bcount = 0;
 	namelen = 0;
 	failed = 0;
+	obrace = 1;
 
 	switch(bref->type) {
 	case HAMMER2_BREF_TYPE_EMPTY:
@@ -533,6 +740,9 @@ show_bref(hammer2_volume_data_t *voldata, int fd, int tab,
 		type_str = "unknown";
 		break;
 	}
+	type_pad = 8 - strlen(type_str);
+	if (type_pad < 0)
+		type_pad = 0;
 
 	switch(bref->type) {
 	case HAMMER2_BREF_TYPE_INODE:
@@ -559,14 +769,25 @@ show_bref(hammer2_volume_data_t *voldata, int fd, int tab,
 		break;
 	}
 
-	tabprintf(tab,
-		  "%s.%-3d %016jx %016jx/%-2d "
-		  "mir=%016jx mod=%016jx leafcnt=%d ",
-		  type_str, bi, (intmax_t)bref->data_off,
-		  (intmax_t)bref->key, (intmax_t)bref->keybits,
-		  (intmax_t)bref->mirror_tid, (intmax_t)bref->modify_tid,
-		  bref->leaf_count);
-	tab += show_tab;
+	tabprintf(tab, "%s.%-3d%*.*s 0x%016jx 0x%016jx/%-2d ",
+		  type_str, bi, type_pad, type_pad, "",
+		  (intmax_t)bref->data_off,
+		  (intmax_t)bref->key, (intmax_t)bref->keybits);
+	/*if (norecurse > 1)*/ {
+		printf("\n");
+		tabprintf(tab + 13, "");
+	}
+	printf("mir=%016jx mod=%016jx lfcnt=%d ",
+	       (intmax_t)bref->mirror_tid, (intmax_t)bref->modify_tid,
+	       bref->leaf_count);
+
+	if (/*norecurse > 1 && */ (bcount || bref->flags ||
+	    bref->type == HAMMER2_BREF_TYPE_FREEMAP_NODE ||
+	    bref->type == HAMMER2_BREF_TYPE_FREEMAP_LEAF)) {
+		printf("\n");
+		tabprintf(tab + 13, "");
+	}
+
 	if (bcount)
 		printf("bcnt=%d ", bcount);
 	if (bref->flags)
@@ -588,12 +809,17 @@ show_bref(hammer2_volume_data_t *voldata, int fd, int tab,
 	 */
 	if (bytes &&
 	    (bref->type != HAMMER2_BREF_TYPE_DATA || VerboseOpt >= 1)) {
+		/*if (norecurse > 1)*/ {
+			printf("\n");
+			tabprintf(tab + 13, "");
+		}
+
 		switch(HAMMER2_DEC_CHECK(bref->methods)) {
 		case HAMMER2_CHECK_NONE:
-			printf("(meth %02x) ", bref->methods);
+			printf("meth=%02x ", bref->methods);
 			break;
 		case HAMMER2_CHECK_DISABLED:
-			printf("(meth %02x) ", bref->methods);
+			printf("meth=%02x ", bref->methods);
 			break;
 		case HAMMER2_CHECK_ISCSI32:
 			cv = hammer2_icrc32(&media, bytes);
@@ -604,7 +830,7 @@ show_bref(hammer2_volume_data_t *voldata, int fd, int tab,
 				       cv);
 				failed = 1;
 			} else {
-				printf("(meth %02x, iscsi32=%08x) ",
+				printf("meth=%02x, iscsi32=%08x ",
 				       bref->methods, cv);
 			}
 			break;
@@ -617,12 +843,22 @@ show_bref(hammer2_volume_data_t *voldata, int fd, int tab,
 				       cv64);
 				failed = 1;
 			} else {
-				printf("(meth %02x, xxh=%016jx) ",
+				printf("meth=%02x, xxh=%016jx ",
 				       bref->methods, cv64);
 			}
 			break;
 		case HAMMER2_CHECK_SHA192:
-			printf("(meth %02x) ", bref->methods);
+			SHA256_Init(&hash_ctx);
+			SHA256_Update(&hash_ctx, &media, bytes);
+			SHA256_Final(u.digest, &hash_ctx);
+			u.digest64[2] ^= u.digest64[3];
+			if (memcmp(u.digest, bref->check.sha192.data,
+			    sizeof(bref->check.sha192.data))) {
+				printf("(sha192 failed) ");
+				failed = 1;
+			} else {
+				printf("meth=%02x ", bref->methods);
+			}
 			break;
 		case HAMMER2_CHECK_FREEMAP:
 			cv = hammer2_icrc32(&media, bytes);
@@ -633,12 +869,14 @@ show_bref(hammer2_volume_data_t *voldata, int fd, int tab,
 					cv);
 				failed = 1;
 			} else {
-				printf("(meth %02x, fcrc=%08x) ",
+				printf("meth=%02x, fcrc=%08x ",
 					bref->methods, cv);
 			}
 			break;
 		}
 	}
+
+	tab += show_tab;
 
 	if (QuietOpt > 0) {
 		obrace = 0;
@@ -781,6 +1019,7 @@ show_bref(hammer2_volume_data_t *voldata, int fd, int tab,
 		tmp = bref->data_off & ~HAMMER2_OFF_MASK_RADIX;
 		tmp &= HAMMER2_SEGMASK;
 		tmp /= HAMMER2_PBUFSIZE;
+		assert(tmp >= HAMMER2_ZONE_FREEMAP_00);
 		assert(tmp < HAMMER2_ZONE_FREEMAP_END);
 		tmp -= HAMMER2_ZONE_FREEMAP_00;
 		tmp /= HAMMER2_ZONE_FREEMAP_INC;
@@ -805,12 +1044,6 @@ show_bref(hammer2_volume_data_t *voldata, int fd, int tab,
 				  media.bmdata[i].bitmapq[5],
 				  media.bmdata[i].bitmapq[6],
 				  media.bmdata[i].bitmapq[7]);
-			if (data_off >= voldata->aux_end &&
-			    data_off < voldata->volu_size) {
-				CountFreeBlocks(&media.bmdata[i],
-						&TotalFreeAccum16,
-						&TotalFreeAccum64);
-			}
 		}
 		tabprintf(tab, "}\n");
 		break;
@@ -819,6 +1052,7 @@ show_bref(hammer2_volume_data_t *voldata, int fd, int tab,
 		tmp = bref->data_off & ~HAMMER2_OFF_MASK_RADIX;
 		tmp &= HAMMER2_SEGMASK;
 		tmp /= HAMMER2_PBUFSIZE;
+		assert(tmp >= HAMMER2_ZONE_FREEMAP_00);
 		assert(tmp < HAMMER2_ZONE_FREEMAP_END);
 		tmp -= HAMMER2_ZONE_FREEMAP_00;
 		tmp /= HAMMER2_ZONE_FREEMAP_INC;
@@ -834,6 +1068,30 @@ show_bref(hammer2_volume_data_t *voldata, int fd, int tab,
 
 skip_data:
 	/*
+	 * Update statistics.
+	 */
+	switch(bref->type) {
+	case HAMMER2_BREF_TYPE_FREEMAP_LEAF:
+		for (i = 0; i < HAMMER2_FREEMAP_COUNT; ++i) {
+			hammer2_off_t data_off = bref->key +
+				i * HAMMER2_FREEMAP_LEVEL0_SIZE;
+			if (data_off >= voldata->aux_end &&
+			    data_off < voldata->volu_size) {
+				int j;
+				for (j = 0; j < 4; ++j)
+					CountBlocks(&media.bmdata[i], j,
+						    &TotalAccum16[j],
+						    &TotalAccum64[j]);
+			} else
+				TotalUnavail += HAMMER2_FREEMAP_LEVEL0_SIZE;
+		}
+		TotalFreemap += HAMMER2_FREEMAP_LEVEL1_SIZE;
+		break;
+	default:
+		break;
+	}
+
+	/*
 	 * Recurse if norecurse == 0.  If the CRC failed, pass norecurse = 1.
 	 * That is, if an indirect or inode fails we still try to list its
 	 * direct children to help with debugging, but go no further than
@@ -841,8 +1099,7 @@ skip_data:
 	 */
 	for (i = 0; norecurse == 0 && i < bcount; ++i) {
 		if (bscan[i].type != HAMMER2_BREF_TYPE_EMPTY) {
-			show_bref(voldata, fd, tab, i, &bscan[i], dofreemap,
-				  failed);
+			show_bref(voldata, fd, tab, i, &bscan[i], failed);
 		}
 	}
 	tab -= show_tab;
@@ -852,31 +1109,44 @@ skip_data:
 				  type_str, bi, namelen, namelen,
 				  media.ipdata.filename);
 		else
-			tabprintf(tab, "} (%s.%d)\n", type_str,bi);
+			tabprintf(tab, "} (%s.%d)\n", type_str, bi);
 	}
 }
 
 static
 void
-CountFreeBlocks(hammer2_bmap_data_t *bmap,
-		hammer2_off_t *accum16, hammer2_off_t *accum64)
+CountBlocks(hammer2_bmap_data_t *bmap, int value,
+	    hammer2_off_t *accum16, hammer2_off_t *accum64)
 {
-	int i;
-	int j;
+	int i, j, bits;
+	hammer2_bitmap_t value16, value64;
 
-	for (i = 0; i < 8; ++i) {
-		uint64_t bm = bmap->bitmapq[i];
-		uint64_t mask;
+	bits = (int)sizeof(hammer2_bitmap_t) * 8;
+	assert(bits == 64);
 
-		mask = 0x03;
-		for (j = 0; j < 64; j += 2) {
-			if ((bm & mask) == 0)
+	value16 = value;
+	assert(value16 < 4);
+	value64 = (value16 << 6) | (value16 << 4) | (value16 << 2) | value16;
+	assert(value64 < 256);
+
+	for (i = 0; i < HAMMER2_BMAP_ELEMENTS; ++i) {
+		hammer2_bitmap_t bm = bmap->bitmapq[i];
+		hammer2_bitmap_t bm_save = bm;
+		hammer2_bitmap_t mask;
+
+		mask = 0x03; /* 2 bits per 16KB */
+		for (j = 0; j < bits; j += 2) {
+			if ((bm & mask) == value16)
 				*accum16 += 16384;
+			bm >>= 2;
 		}
-		mask = 0xFF;
-		for (j = 0; j < 64; j += 8) {
-			if ((bm & mask) == 0)
+
+		bm = bm_save;
+		mask = 0xFF; /* 8 bits per 64KB chunk */
+		for (j = 0; j < bits; j += 8) {
+			if ((bm & mask) == value64)
 				*accum64 += 65536;
+			bm >>= 8;
 		}
 	}
 }

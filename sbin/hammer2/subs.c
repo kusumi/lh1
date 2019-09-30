@@ -33,7 +33,21 @@
  * SUCH DAMAGE.
  */
 
-#include "hammer2.h"
+#include <sys/types.h>
+#include <sys/time.h>
+#include <sys/ioctl.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <errno.h>
+#include <uuid/uuid.h>
+
+#include <vfs/hammer2/hammer2_disk.h>
+#include <vfs/hammer2/hammer2_ioctl.h>
+
+#include "hammer2_subs.h"
 
 /*
  * Obtain a file descriptor that the caller can execute ioctl()'s on.
@@ -60,83 +74,6 @@ hammer2_ioctl_handle(const char *sel_path)
 		return(-1);
 	}
 	return (fd);
-}
-
-/*
- * Execute the specified function as a detached independent process/daemon,
- * unless we are in debug mode.  If we are in debug mode the function is
- * executed as a pthread in the current process.
- */
-void
-hammer2_demon(void *(*func)(void *), void *arg)
-{
-	pthread_t thread;
-	pid_t pid;
-	int ttyfd;
-
-	/*
-	 * Do not disconnect in debug mode
-	 */
-	if (DebugOpt) {
-                pthread_create(&thread, NULL, func, arg);
-		NormalExit = 0;
-		return;
-	}
-
-	/*
-	 * Otherwise disconnect us.  Double-fork to get rid of the ppid
-	 * association and disconnect the TTY.
-	 */
-	if ((pid = fork()) < 0) {
-		fprintf(stderr, "hammer2: fork(): %s\n", strerror(errno));
-		exit(1);
-	}
-	if (pid > 0) {
-		while (waitpid(pid, NULL, 0) != pid)
-			;
-		return;		/* parent returns */
-	}
-
-	/*
-	 * Get rid of the TTY/session before double-forking to finish off
-	 * the ppid.
-	 */
-	ttyfd = open("/dev/null", O_RDWR);
-	if (ttyfd >= 0) {
-		if (ttyfd != 0)
-			dup2(ttyfd, 0);
-		if (ttyfd != 1)
-			dup2(ttyfd, 1);
-		if (ttyfd != 2)
-			dup2(ttyfd, 2);
-		if (ttyfd > 2)
-			close(ttyfd);
-	}
-
-	ttyfd = open("/dev/tty", O_RDWR);
-	if (ttyfd >= 0) {
-		ioctl(ttyfd, TIOCNOTTY, 0);
-		close(ttyfd);
-	}
-	setsid();
-
-	/*
-	 * Second fork to disconnect ppid (the original parent waits for
-	 * us to exit).
-	 */
-	if ((pid = fork()) < 0) {
-		_exit(2);
-	}
-	if (pid > 0)
-		_exit(0);
-
-	/*
-	 * The double child
-	 */
-	setsid();
-	pthread_create(&thread, NULL, func, arg);
-	pthread_exit(NULL);
-	_exit(2);	/* NOT REACHED */
 }
 
 const char *
@@ -266,29 +203,17 @@ counttostr(hammer2_off_t size)
 	return(buf);
 }
 
-#if 0
 /*
- * Allocation wrappers give us shims for possible future use
+ * Borrow HAMMER1's directory hash algorithm #1 with a few modifications.
+ * The filename is split into fields which are hashed separately and then
+ * added together.
+ *
+ * Differences include: bit 63 must be set to 1 for HAMMER2 (HAMMER1 sets
+ * it to 0), this is because bit63=0 is used for hidden hardlinked inodes.
+ * (This means we do not need to do a 0-check/or-with-0x100000000 either).
+ *
+ * Also, the iscsi crc code is used instead of the old crc32 code.
  */
-void *
-hammer2_alloc(size_t bytes)
-{
-	void *ptr;
-
-	ptr = malloc(bytes);
-	assert(ptr);
-	bzero(ptr, bytes);
-	return (ptr);
-}
-
-void
-hammer2_free(void *ptr)
-{
-	free(ptr);
-}
-
-#endif
-
 hammer2_key_t
 dirhash(const unsigned char *name, size_t len)
 {

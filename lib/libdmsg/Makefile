@@ -1,4 +1,4 @@
-SRCS1=	icrc.c debug.c subs.c crypto.c msg.c msg_lnk.c service.c uuid.c
+SRCS1=	../../sys/libkern/icrc32.c debug.c subs.c crypto.c msg.c msg_lnk.c service.c uuid.c
 
 OBJS1 := $(SRCS1:.c=.o)
 

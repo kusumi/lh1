@@ -1,5 +1,7 @@
 /*
- * Copyright (c) 2011-2012 The DragonFly Project.  All rights reserved.
+ * Copyright (c) 2019 Tomohiro Kusumi <tkusumi@netbsd.org>
+ * Copyright (c) 2019 The DragonFly Project
+ * All rights reserved.
  *
  * This code is derived from software contributed to The DragonFly Project
  * by Matthew Dillon <dillon@dragonflybsd.org>
@@ -32,47 +34,14 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/types.h>
-#include <sys/stat.h> // before <sys/dfly.h>, <sys/tree.h>, <sys/dmsg.h>
-#include <netdb.h> // before <sys/dfly.h>, <sys/tree.h>, <sys/dmsg.h>
-#include <sys/queue.h>
-#include <sys/tree.h>
-#include <sys/file.h>
-#include <sys/socket.h>
-#include <sys/dmsg.h>
-#include <sys/poll.h>
-#include <sys/uio.h>
-#include <sys/dfly.h>
+#ifndef FSCK_HAMMER2_H_
+#define FSCK_HAMMER2_H_
 
-#include <netinet/in.h>
-#include <netinet/ip.h>
-#include <netinet/tcp.h>
-#include <arpa/inet.h>
+extern int DebugOpt;
+extern int ForceOpt;
+extern int VerboseOpt;
+extern int QuietOpt;
 
-#include <assert.h>
-#include <pthread.h>
-#include <libutil.h>
+int test_hammer2(const char *);
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
-#include <uuid/uuid.h>
-#include <time.h>
-
-#include <openssl/rsa.h>	/* public/private key functions */
-#include <openssl/pem.h>	/* public/private key file load */
-#include <openssl/err.h>
-#include <openssl/evp.h>	/* aes_256_cbc functions */
-
-#include <machine/atomic.h>
-#include <byteswap.h>
-
-#include "dmsg.h"
-
-/*
- * Define prototypes here to prevent conflict with hammer2.h.
- * The real problem is that there is no userspace header for these two.
- */
-uint32_t iscsi_crc32(const void *buf, size_t size);
-uint32_t iscsi_crc32_ext(const void *buf, size_t size, uint32_t ocrc);
+#endif /* !FSCK_HAMMER2_H_ */

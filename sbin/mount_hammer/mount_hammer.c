@@ -143,6 +143,7 @@ main(int ac, char **av)
 	extract_volumes(&info, av, ac - 1);
 #if 0
 	mountpt = av[ac - 1];
+
 	/*
 	 * Load the hammer module if necessary (this bit stolen from
 	 * mount_null).

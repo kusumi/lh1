@@ -51,6 +51,7 @@ struct hammer2_mount_info {
 
 #define HMNT2_NOAUTOSNAP	0x00000001
 #define HMNT2_LOCAL		0x00000002
+#define HMNT2_EMERG		0x00000004	/* emergency mode */
 
 #define HMNT2_USERFLAGS		(HMNT2_NOAUTOSNAP | HMNT2_LOCAL)
 #define HMNT2_DEVFLAGS		(HMNT2_LOCAL)

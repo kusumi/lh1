@@ -216,6 +216,12 @@ main(int ac, char **av)
 		}
 		ecode = cmd_destroy_inum(sel_path, ac - 1,
 					 (const char **)(void *)&av[1]);
+	} else if (strcmp(av[0], "emergency-mode-enable") == 0) {
+		ecode = cmd_emergency_mode(sel_path, 1, ac - 1,
+					 (const char **)(void *)&av[1]);
+	} else if (strcmp(av[0], "emergency-mode-disable") == 0) {
+		ecode = cmd_emergency_mode(sel_path, 0, ac - 1,
+					 (const char **)(void *)&av[1]);
 	} else if (strcmp(av[0], "hash") == 0) {
 		ecode = cmd_hash(ac - 1, (const char **)(void *)&av[1]);
 	} else if (strcmp(av[0], "dhash") == 0) {
@@ -417,6 +423,16 @@ main(int ac, char **av)
 		} else {
 			cmd_show(av[1], 1);
 		}
+	} else if (strcmp(av[0], "volhdr") == 0) {
+		/*
+		 * Dump the volume header.
+		 */
+		if (ac != 2) {
+			fprintf(stderr, "volhdr: requires device path\n");
+			usage(1);
+		} else {
+			cmd_show(av[1], 2);
+		}
 	} else if (strcmp(av[0], "setcomp") == 0) {
 		if (ac < 3) {
 			/*
@@ -524,6 +540,12 @@ usage(int code)
 			"Destroy inodes (only use if inode bad)\n"
 		"    disconnect <target>               "
 			"Del cluster link\n"
+		"    emergency-mode-enable <target>    "
+			"Enable emergency operations mode on filesystem\n"
+		"                                      "
+			"THIS IS A VERY DANGEROUS MODE\n"
+		"    emergency-mode-disable <target>   "
+			"Disable emergency operations mode on filesystem\n"
 		"    info [<devpath>...]               "
 			"Info on all offline or online H2 partitions\n"
 		"    mountall [<devpath>...]           "
@@ -564,6 +586,8 @@ usage(int code)
 			"Raw hammer2 media dump for topology\n"
 		"    freemap <devpath>                 "
 			"Raw hammer2 media dump for freemap\n"
+		"    volhdr <devpath>                  "
+			"Raw hammer2 media dump for the volume header(s)\n"
 		"    setcomp <comp[:level]> <path>...  "
 			"Set comp algo {none, autozero, lz4, zlib} & level\n"
 		"    setcheck <check> <path>...        "
