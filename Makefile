@@ -12,7 +12,8 @@ sbin/mount_hammer: lib/libutil
 sbin/hammer2: lib/libc/gen lib/libc/string lib/libutil lib/libdmsg sys/libkern sys/vfs/hammer2/xxhash
 sbin/newfs_hammer2: sbin/hammer2 lib/libc/gen sys/libkern sys/vfs/hammer2/xxhash
 sbin/mount_hammer2: lib/libutil
-sbin/fsck_hammer2: sbin/hammer2 sys/libkern sys/vfs/hammer2/xxhash
+sbin/fsck_hammer2: sbin/hammer2 sys/libkern sys/vfs/hammer2/xxhash lib/libc/string
+usr.sbin/fstyp: lib/libc/string
 clean:
 	for dir in $(SUBDIRS); do \
 		$(MAKE) -C $$dir $@; \

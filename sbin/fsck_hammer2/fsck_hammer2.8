@@ -32,7 +32,7 @@
 .\" OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
 .\" SUCH DAMAGE.
 .\"
-.Dd September 21, 2019
+.Dd October 30, 2019
 .Dt FSCK_HAMMER2 8
 .Os
 .Sh NAME
@@ -43,6 +43,11 @@
 .Op Fl f
 .Op Fl v
 .Op Fl q
+.Op Fl e
+.Op Fl b
+.Op Fl p
+.Op Fl l Ar pfs_names
+.Op Fl c Ar cache_count
 .Ar special
 .Sh DESCRIPTION
 The
@@ -50,29 +55,37 @@ The
 utility verifies
 .Tn HAMMER2
 file system.
-There is currently no file system repairing.
 .Bl -tag -width indent
 .It Fl f
 Force option.
 .It Fl v
-Verbose option. Unused.
+Verbose option.
+Print blockref data on failure if possible.
 .It Fl q
-Quiet option. Unused.
+Quiet option.
+.It Fl e
+Count empty blockrefs.
+.It Fl b
+Scan only best zone.
+.It Fl p
+Scan each PFS separately.
+.It Fl l
+Specify PFS names when
+.Fl p
+is used.
+.It Fl c
+Specify blockref cache count.
 .El
 .Sh SEE ALSO
 .Xr fsck 8 ,
 .Xr hammer2 8 ,
-.Xr newfs_hammer2 8 ,
-.Xr mount_hammer2 8
+.Xr mount_hammer2 8 ,
+.Xr newfs_hammer2 8
 .Sh HISTORY
 The
 .Nm
 utility appeared in
 .Dx 5.7 .
-.Sh BUGS
-The
-.Nm
-utility is currently under development.
 .Sh AUTHORS
 .An Tomohiro Kusumi Aq Mt tkusumi@netbsd.org
 .br

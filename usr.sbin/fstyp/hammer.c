@@ -88,7 +88,7 @@ __test_ondisk(const hammer_volume_ondisk_t ondisk)
 }
 
 int
-fstyp_hammer(FILE *fp, char *label, size_t size)
+fstyp_hammer(FILE *fp, char *label, size_t size, const char *devpath)
 {
 	hammer_volume_ondisk_t ondisk;
 	int error = 1;
@@ -174,6 +174,7 @@ __fsvtyp_hammer(const char *blkdevs, char *label, size_t size, int partial)
 		if (x[i] != 0)
 			goto done;
 success:
+	/* XXX autofs -media mount can't handle multiple mounts */
 	strlcpy(label, ondisk->vol_label, size);
 	error = 0;
 done:

@@ -41,6 +41,12 @@ extern int DebugOpt;
 extern int ForceOpt;
 extern int VerboseOpt;
 extern int QuietOpt;
+extern int CountEmpty;
+extern int ScanBest;
+extern int ScanPFS;
+extern int NumPFSNames;
+extern char **PFSNames;
+extern long BlockrefCacheCount;
 
 int test_hammer2(const char *);
 

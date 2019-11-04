@@ -56,16 +56,20 @@
 #include "hammer2_subs.h"
 #include "fsck_hammer2.h"
 
+#include "../../lib/libc/string/util.h"
+
 struct blockref_msg {
 	TAILQ_ENTRY(blockref_msg) entry;
 	hammer2_blockref_t bref;
-	char *msg;
+	void *msg;
 };
+
+TAILQ_HEAD(blockref_list, blockref_msg);
 
 struct blockref_entry {
 	RB_ENTRY(blockref_entry) entry;
 	hammer2_off_t data_off;
-	TAILQ_HEAD(, blockref_msg) head;
+	struct blockref_list head;
 };
 
 static int
@@ -89,7 +93,6 @@ typedef struct {
 	uint8_t type; /* HAMMER2_BREF_TYPE_VOLUME or FREEMAP */
 	uint64_t total_blockref;
 	uint64_t total_empty;
-	uint64_t total_invalid;
 	uint64_t total_bytes;
 	union {
 		/* use volume or freemap depending on type value */
@@ -106,12 +109,40 @@ typedef struct {
 	};
 } blockref_stats_t;
 
+typedef struct {
+	uint64_t total_blockref;
+	uint64_t total_empty;
+	uint64_t total_bytes;
+	struct {
+		uint64_t total_inode;
+		uint64_t total_indirect;
+		uint64_t total_data;
+		uint64_t total_dirent;
+	} volume;
+	struct {
+		uint64_t total_freemap_node;
+		uint64_t total_freemap_leaf;
+	} freemap;
+	long count;
+} delta_stats_t;
+
+static void print_blockref_entry(int, struct blockref_tree *);
 static void init_blockref_stats(blockref_stats_t *, uint8_t);
 static void cleanup_blockref_stats(blockref_stats_t *);
+static void init_delta_root(struct blockref_tree *);
+static void cleanup_delta_root(struct blockref_tree *);
 static void print_blockref_stats(const blockref_stats_t *, bool);
 static int verify_volume_header(const hammer2_volume_data_t *);
+static int read_media(int, const hammer2_blockref_t *, hammer2_media_data_t *,
+    size_t *);
 static int verify_blockref(int, const hammer2_volume_data_t *,
-    const hammer2_blockref_t *, bool, blockref_stats_t *);
+    const hammer2_blockref_t *, bool, blockref_stats_t *,
+    struct blockref_tree *, delta_stats_t *);
+static int init_pfs_blockref(int, const hammer2_volume_data_t *,
+    const hammer2_blockref_t *, struct blockref_list *);
+static void cleanup_pfs_blockref(struct blockref_list *);
+static void print_media(FILE *, int, const hammer2_blockref_t *,
+    hammer2_media_data_t *, size_t);
 
 static int best_zone = -1;
 
@@ -121,14 +152,51 @@ static void
 tfprintf(FILE *fp, int tab, const char *ctl, ...)
 {
 	va_list va;
+	int ret;
 
-	tab *= TAB;
-	fprintf(fp, "%*s", tab, "");
-	//fflush(fp);
+	ret = fprintf(fp, "%*s", tab * TAB, "");
+	if (ret < 0)
+		return;
 
 	va_start(va, ctl);
 	vfprintf(fp, ctl, va);
 	va_end(va);
+}
+
+static void
+tsnprintf(char *str, size_t siz, int tab, const char *ctl, ...)
+{
+	va_list va;
+	int ret;
+
+	ret = snprintf(str, siz, "%*s", tab * TAB, "");
+	if (ret < 0 || ret >= (int)siz)
+		return;
+
+	va_start(va, ctl);
+	vsnprintf(str + ret, siz, ctl, va);
+	va_end(va);
+}
+
+static void
+tprintf_zone(int tab, int i, const hammer2_blockref_t *bref)
+{
+	tfprintf(stdout, tab, "zone.%d %016jx%s\n",
+	    i, (uintmax_t)bref->data_off,
+	    (!ScanBest && i == best_zone) ? " (best)" : "");
+}
+
+static int
+init_root_blockref(int fd, int i, uint8_t type, hammer2_blockref_t *bref)
+{
+	assert(type == HAMMER2_BREF_TYPE_EMPTY ||
+		type == HAMMER2_BREF_TYPE_VOLUME ||
+		type == HAMMER2_BREF_TYPE_FREEMAP);
+	memset(bref, 0, sizeof(*bref));
+	bref->type = type;
+	bref->data_off = (i * HAMMER2_ZONE_BYTES64) | HAMMER2_PBUFRADIX;
+
+	return lseek(fd, bref->data_off & ~HAMMER2_OFF_MASK_RADIX, SEEK_SET);
 }
 
 static int
@@ -144,10 +212,7 @@ find_best_zone(int fd)
 		hammer2_blockref_t broot;
 		ssize_t ret;
 
-		memset(&broot, 0, sizeof(broot));
-		broot.data_off = (i * HAMMER2_ZONE_BYTES64) | HAMMER2_PBUFRADIX;
-		lseek(fd, broot.data_off & ~HAMMER2_OFF_MASK_RADIX, SEEK_SET);
-
+		init_root_blockref(fd, i, HAMMER2_BREF_TYPE_EMPTY, &broot);
 		ret = read(fd, &voldata, HAMMER2_PBUFSIZE);
 		if (ret == HAMMER2_PBUFSIZE) {
 			if ((voldata.magic != HAMMER2_VOLUME_ID_HBO) &&
@@ -181,17 +246,12 @@ test_volume_header(int fd)
 		hammer2_blockref_t broot;
 		ssize_t ret;
 
-		memset(&broot, 0, sizeof(broot));
-		broot.data_off = (i * HAMMER2_ZONE_BYTES64) | HAMMER2_PBUFRADIX;
-		lseek(fd, broot.data_off & ~HAMMER2_OFF_MASK_RADIX, SEEK_SET);
-
+		if (ScanBest && i != best_zone)
+			continue;
+		init_root_blockref(fd, i, HAMMER2_BREF_TYPE_EMPTY, &broot);
 		ret = read(fd, &voldata, HAMMER2_PBUFSIZE);
 		if (ret == HAMMER2_PBUFSIZE) {
-			broot.mirror_tid = voldata.mirror_tid;
-
-			printf("zone.%d %016jx%s\n",
-			    i, (uintmax_t)broot.data_off,
-			    (i == best_zone) ? " (best)" : "");
+			tprintf_zone(0, i, &broot);
 			if (verify_volume_header(&voldata) == -1)
 				failed = true;
 		} else if (ret == -1) {
@@ -209,56 +269,127 @@ test_volume_header(int fd)
 static int
 test_blockref(int fd, uint8_t type)
 {
+	struct blockref_tree droot;
 	bool failed = false;
 	int i;
 
+	init_delta_root(&droot);
 	for (i = 0; i < HAMMER2_NUM_VOLHDRS; ++i) {
 		hammer2_volume_data_t voldata;
 		hammer2_blockref_t broot;
 		ssize_t ret;
 
-		memset(&broot, 0, sizeof(broot));
-		broot.type = type;
-		broot.data_off = (i * HAMMER2_ZONE_BYTES64) | HAMMER2_PBUFRADIX;
-		lseek(fd, broot.data_off & ~HAMMER2_OFF_MASK_RADIX, SEEK_SET);
-
+		if (ScanBest && i != best_zone)
+			continue;
+		init_root_blockref(fd, i, type, &broot);
 		ret = read(fd, &voldata, HAMMER2_PBUFSIZE);
 		if (ret == HAMMER2_PBUFSIZE) {
 			blockref_stats_t bstats;
-			struct blockref_entry *e;
-			broot.mirror_tid = voldata.mirror_tid;
 			init_blockref_stats(&bstats, type);
-
-			printf("zone.%d %016jx%s\n",
-			    i, (uintmax_t)broot.data_off,
-			    (i == best_zone) ? " (best)" : "");
+			delta_stats_t ds;
+			memset(&ds, 0, sizeof(ds));
+			tprintf_zone(0, i, &broot);
 			if (verify_blockref(fd, &voldata, &broot, false,
-			    &bstats) == -1)
+			    &bstats, &droot, &ds) == -1)
 				failed = true;
 			print_blockref_stats(&bstats, true);
-
-			RB_FOREACH(e, blockref_tree, &bstats.root) {
-				struct blockref_msg *m;
-				TAILQ_FOREACH(m, &e->head, entry) {
-					tfprintf(stderr, 1, "%016jx %3d "
-					    "%016jx/%-2d \"%s\"\n",
-					    (uintmax_t)e->data_off,
-					    m->bref.type,
-					    (uintmax_t)m->bref.key,
-					    m->bref.keybits,
-					    m->msg);
-				}
-			}
+			print_blockref_entry(fd, &bstats.root);
 			cleanup_blockref_stats(&bstats);
 		} else if (ret == -1) {
 			perror("read");
-			return -1;
+			failed = true;
+			goto end;
 		} else {
 			tfprintf(stderr, 1, "Failed to read volume header\n");
-			return -1;
+			failed = true;
+			goto end;
 		}
 	}
+end:
+	cleanup_delta_root(&droot);
+	return failed ? -1 : 0;
+}
 
+static int
+test_pfs_blockref(int fd)
+{
+	struct blockref_tree droot;
+	uint8_t type = HAMMER2_BREF_TYPE_VOLUME;
+	bool failed = false;
+	int i;
+
+	init_delta_root(&droot);
+	for (i = 0; i < HAMMER2_NUM_VOLHDRS; ++i) {
+		hammer2_volume_data_t voldata;
+		hammer2_blockref_t broot;
+		ssize_t ret;
+
+		if (ScanBest && i != best_zone)
+			continue;
+		init_root_blockref(fd, i, type, &broot);
+		ret = read(fd, &voldata, HAMMER2_PBUFSIZE);
+		if (ret == HAMMER2_PBUFSIZE) {
+			struct blockref_list blist;
+			struct blockref_msg *p;
+			int count = 0;
+
+			tprintf_zone(0, i, &broot);
+			TAILQ_INIT(&blist);
+			if (init_pfs_blockref(fd, &voldata, &broot, &blist) ==
+			    -1) {
+				tfprintf(stderr, 1, "Failed to read PFS "
+				    "blockref\n");
+				failed = true;
+				continue;
+			}
+			if (TAILQ_EMPTY(&blist)) {
+				tfprintf(stderr, 1, "Failed to find PFS "
+				    "blockref\n");
+				failed = true;
+				continue;
+			}
+			TAILQ_FOREACH(p, &blist, entry) {
+				blockref_stats_t bstats;
+				bool found = false;
+				if (NumPFSNames) {
+					int j;
+					for (j = 0; j < NumPFSNames; j++)
+						if (!strcmp(PFSNames[j],
+						    p->msg))
+							found = true;
+				} else
+					found = true;
+				if (!found)
+					continue;
+				count++;
+				tfprintf(stdout, 1, "%s\n", p->msg);
+				init_blockref_stats(&bstats, type);
+				delta_stats_t ds;
+				memset(&ds, 0, sizeof(ds));
+				if (verify_blockref(fd, &voldata, &p->bref,
+				    false, &bstats, &droot, &ds) == -1)
+					failed = true;
+				print_blockref_stats(&bstats, true);
+				print_blockref_entry(fd, &bstats.root);
+				cleanup_blockref_stats(&bstats);
+			}
+			cleanup_pfs_blockref(&blist);
+			if (NumPFSNames && !count) {
+				tfprintf(stderr, 1, "PFS not found\n");
+				failed = true;
+			}
+		} else if (ret == -1) {
+			perror("read");
+			failed = true;
+			goto end;
+		} else {
+			tfprintf(stderr, 1, "Failed to read volume header\n");
+			failed = true;
+			goto end;
+		}
+	}
+end:
+	cleanup_delta_root(&droot);
 	return failed ? -1 : 0;
 }
 
@@ -281,54 +412,131 @@ charsperline(void)
 }
 
 static void
-add_blockref_entry(blockref_stats_t *bstats, const hammer2_blockref_t *bref,
-    const char *msg)
+cleanup_blockref_msg(struct blockref_list *head)
+{
+	struct blockref_msg *p;
+
+	while ((p = TAILQ_FIRST(head)) != NULL) {
+		TAILQ_REMOVE(head, p, entry);
+		free(p->msg);
+		free(p);
+	}
+	assert(TAILQ_EMPTY(head));
+}
+
+static void
+cleanup_blockref_entry(struct blockref_tree *root)
 {
 	struct blockref_entry *e;
-	struct blockref_msg *m;
 
-	e = RB_LOOKUP(blockref_tree, &bstats->root, bref->data_off);
-	if (!e) {
-		e = calloc(1, sizeof(*e));
-		assert(e);
-		TAILQ_INIT(&e->head);
+	while ((e = RB_ROOT(root)) != NULL) {
+		RB_REMOVE(blockref_tree, root, e);
+		cleanup_blockref_msg(&e->head);
+		free(e);
 	}
+	assert(RB_EMPTY(root));
+}
+
+static void
+add_blockref_msg(struct blockref_list *head, const hammer2_blockref_t *bref,
+    const void *msg, size_t siz)
+{
+	struct blockref_msg *m;
+	void *p;
 
 	m = calloc(1, sizeof(*m));
 	assert(m);
 	m->bref = *bref;
-	m->msg = strdup(msg);
+	p = calloc(1, siz);
+	assert(p);
+	memcpy(p, msg, siz);
+	m->msg = p;
 
-	e->data_off = bref->data_off;
-	TAILQ_INSERT_TAIL(&e->head, m, entry);
-	RB_INSERT(blockref_tree, &bstats->root, e);
+	TAILQ_INSERT_TAIL(head, m, entry);
+}
+
+static void
+add_blockref_entry(struct blockref_tree *root, const hammer2_blockref_t *bref,
+    const void *msg, size_t siz)
+{
+	struct blockref_entry *e;
+
+	e = RB_LOOKUP(blockref_tree, root, bref->data_off);
+	if (!e) {
+		e = calloc(1, sizeof(*e));
+		assert(e);
+		TAILQ_INIT(&e->head);
+		e->data_off = bref->data_off;
+	}
+
+	add_blockref_msg(&e->head, bref, msg, siz);
+
+	RB_INSERT(blockref_tree, root, e);
+}
+
+static void
+print_blockref(FILE *fp, const hammer2_blockref_t *bref, const char *msg)
+{
+	tfprintf(fp, 1, "%016jx %-12s %016jx/%-2d \"%s\"\n",
+	    (uintmax_t)bref->data_off,
+	    hammer2_breftype_to_str(bref->type),
+	    (uintmax_t)bref->key,
+	    bref->keybits,
+	    msg);
+}
+
+static void
+print_blockref_msg(int fd, struct blockref_list *head)
+{
+	struct blockref_msg *m;
+
+	TAILQ_FOREACH(m, head, entry) {
+		hammer2_blockref_t *bref = &m->bref;
+		print_blockref(stderr, bref, m->msg);
+		if (fd != -1 && VerboseOpt > 0) {
+			hammer2_media_data_t media;
+			size_t bytes;
+			if (!read_media(fd, bref, &media, &bytes))
+				print_media(stderr, 2, bref, &media, bytes);
+			else
+				tfprintf(stderr, 2, "Failed to read media\n");
+		}
+	}
+}
+
+static void
+print_blockref_entry(int fd, struct blockref_tree *root)
+{
+	struct blockref_entry *e;
+
+	RB_FOREACH(e, blockref_tree, root)
+		print_blockref_msg(fd, &e->head);
 }
 
 static void
 init_blockref_stats(blockref_stats_t *bstats, uint8_t type)
 {
 	memset(bstats, 0, sizeof(*bstats));
-	bstats->type = type;
 	RB_INIT(&bstats->root);
+	bstats->type = type;
 }
 
 static void
 cleanup_blockref_stats(blockref_stats_t *bstats)
 {
-	struct blockref_entry *e;
+	cleanup_blockref_entry(&bstats->root);
+}
 
-	while ((e = RB_ROOT(&bstats->root)) != NULL) {
-		struct blockref_msg *m;
-		RB_REMOVE(blockref_tree, &bstats->root, e);
-		while ((m = TAILQ_FIRST(&e->head)) != NULL) {
-			TAILQ_REMOVE(&e->head, m, entry);
-			free(m->msg);
-			free(m);
-		}
-		assert(TAILQ_EMPTY(&e->head));
-		free(e);
-	}
-	assert(RB_EMPTY(&bstats->root));
+static void
+init_delta_root(struct blockref_tree *droot)
+{
+	RB_INIT(droot);
+}
+
+static void
+cleanup_delta_root(struct blockref_tree *droot)
+{
+	cleanup_blockref_entry(droot);
 }
 
 static void
@@ -336,30 +544,35 @@ print_blockref_stats(const blockref_stats_t *bstats, bool newline)
 {
 	size_t siz = charsperline();
 	char *buf = calloc(1, siz);
+	char emptybuf[128];
 
 	assert(buf);
 
+	if (CountEmpty)
+		snprintf(emptybuf, sizeof(emptybuf), ", %ju empty",
+		    (uintmax_t)bstats->total_empty);
+	else
+		strlcpy(emptybuf, "", sizeof(emptybuf));
+
 	switch (bstats->type) {
 	case HAMMER2_BREF_TYPE_VOLUME:
-		snprintf(buf, siz, "%*s%ju blockref (%ju inode, %ju indirect, "
-		    "%ju data, %ju dirent, %ju empty), %s",
-		    TAB, "",
+		tsnprintf(buf, siz, 1, "%ju blockref (%ju inode, %ju indirect, "
+		    "%ju data, %ju dirent%s), %s",
 		    (uintmax_t)bstats->total_blockref,
 		    (uintmax_t)bstats->volume.total_inode,
 		    (uintmax_t)bstats->volume.total_indirect,
 		    (uintmax_t)bstats->volume.total_data,
 		    (uintmax_t)bstats->volume.total_dirent,
-		    (uintmax_t)bstats->total_empty,
+		    emptybuf,
 		    sizetostr(bstats->total_bytes));
 		break;
 	case HAMMER2_BREF_TYPE_FREEMAP:
-		snprintf(buf, siz, "%*s%ju blockref (%ju node, %ju leaf, "
-		    "%ju empty), %s",
-		    TAB, "",
+		tsnprintf(buf, siz, 1, "%ju blockref (%ju node, %ju leaf%s), "
+		    "%s",
 		    (uintmax_t)bstats->total_blockref,
 		    (uintmax_t)bstats->freemap.total_freemap_node,
 		    (uintmax_t)bstats->freemap.total_freemap_leaf,
-		    (uintmax_t)bstats->total_empty,
+		    emptybuf,
 		    sizetostr(bstats->total_bytes));
 		break;
 	default:
@@ -379,7 +592,7 @@ print_blockref_stats(const blockref_stats_t *bstats, bool newline)
 static int
 verify_volume_header(const hammer2_volume_data_t *voldata)
 {
-	hammer2_crc32_t crc0, crc, bcrc0, bcrc;
+	hammer2_crc32_t crc0, crc1;
 	const char *p = (const char*)voldata;
 
 	if ((voldata->magic != HAMMER2_VOLUME_ID_HBO) &&
@@ -391,19 +604,27 @@ verify_volume_header(const hammer2_volume_data_t *voldata)
 	if (voldata->magic == HAMMER2_VOLUME_ID_ABO)
 		tfprintf(stderr, 1, "Reverse endian\n");
 
-	crc = voldata->icrc_sects[HAMMER2_VOL_ICRC_SECT0];
-	crc0 = hammer2_icrc32(p + HAMMER2_VOLUME_ICRC0_OFF,
+	crc0 = voldata->icrc_sects[HAMMER2_VOL_ICRC_SECT0];
+	crc1 = hammer2_icrc32(p + HAMMER2_VOLUME_ICRC0_OFF,
 	    HAMMER2_VOLUME_ICRC0_SIZE);
-	if (crc0 != crc) {
+	if (crc0 != crc1) {
 		tfprintf(stderr, 1, "Bad HAMMER2_VOL_ICRC_SECT0 CRC\n");
 		return -1;
 	}
 
-	bcrc = voldata->icrc_sects[HAMMER2_VOL_ICRC_SECT1];
-	bcrc0 = hammer2_icrc32(p + HAMMER2_VOLUME_ICRC1_OFF,
+	crc0 = voldata->icrc_sects[HAMMER2_VOL_ICRC_SECT1];
+	crc1 = hammer2_icrc32(p + HAMMER2_VOLUME_ICRC1_OFF,
 	    HAMMER2_VOLUME_ICRC1_SIZE);
-	if (bcrc0 != bcrc) {
+	if (crc0 != crc1) {
 		tfprintf(stderr, 1, "Bad HAMMER2_VOL_ICRC_SECT1 CRC\n");
+		return -1;
+	}
+
+	crc0 = voldata->icrc_volheader;
+	crc1 = hammer2_icrc32(p + HAMMER2_VOLUME_ICRCVH_OFF,
+	    HAMMER2_VOLUME_ICRCVH_SIZE);
+	if (crc0 != crc1) {
+		tfprintf(stderr, 1, "Bad volume header CRC\n");
 		return -1;
 	}
 
@@ -411,8 +632,89 @@ verify_volume_header(const hammer2_volume_data_t *voldata)
 }
 
 static int
+read_media(int fd, const hammer2_blockref_t *bref, hammer2_media_data_t *media,
+    size_t *media_bytes)
+{
+	hammer2_off_t io_off, io_base;
+	size_t bytes, io_bytes, boff;
+
+	bytes = (bref->data_off & HAMMER2_OFF_MASK_RADIX);
+	if (bytes)
+		bytes = (size_t)1 << bytes;
+	if (media_bytes)
+		*media_bytes = bytes;
+
+	if (!bytes)
+		return 0;
+
+	io_off = bref->data_off & ~HAMMER2_OFF_MASK_RADIX;
+	io_base = io_off & ~(hammer2_off_t)(HAMMER2_MINIOSIZE - 1);
+	boff = io_off - io_base;
+
+	io_bytes = HAMMER2_MINIOSIZE;
+	while (io_bytes + boff < bytes)
+		io_bytes <<= 1;
+
+	if (io_bytes > sizeof(*media))
+		return -1;
+	if (lseek(fd, io_base, SEEK_SET) == -1)
+		return -2;
+	if (read(fd, media, io_bytes) != (ssize_t)io_bytes)
+		return -2;
+	if (boff)
+		memmove(media, (char *)media + boff, bytes);
+
+	return 0;
+}
+
+static void
+load_delta_stats(blockref_stats_t *bstats, const delta_stats_t *dstats)
+{
+	bstats->total_blockref += dstats->total_blockref;
+	bstats->total_empty += dstats->total_empty;
+	bstats->total_bytes += dstats->total_bytes;
+
+	switch (bstats->type) {
+	case HAMMER2_BREF_TYPE_VOLUME:
+		bstats->volume.total_inode += dstats->volume.total_inode;
+		bstats->volume.total_indirect += dstats->volume.total_indirect;
+		bstats->volume.total_data += dstats->volume.total_data;
+		bstats->volume.total_dirent += dstats->volume.total_dirent;
+		break;
+	case HAMMER2_BREF_TYPE_FREEMAP:
+		bstats->freemap.total_freemap_node +=
+		    dstats->freemap.total_freemap_node;
+		bstats->freemap.total_freemap_leaf +=
+		    dstats->freemap.total_freemap_leaf;
+		break;
+	default:
+		assert(0);
+		break;
+	}
+}
+
+static void
+accumulate_delta_stats(delta_stats_t *dst, const delta_stats_t *src)
+{
+	dst->total_blockref += src->total_blockref;
+	dst->total_empty += src->total_empty;
+	dst->total_bytes += src->total_bytes;
+
+	dst->volume.total_inode += src->volume.total_inode;
+	dst->volume.total_indirect += src->volume.total_indirect;
+	dst->volume.total_data += src->volume.total_data;
+	dst->volume.total_dirent += src->volume.total_dirent;
+
+	dst->freemap.total_freemap_node += src->freemap.total_freemap_node;
+	dst->freemap.total_freemap_leaf += src->freemap.total_freemap_leaf;
+
+	dst->count += src->count;
+}
+
+static int
 verify_blockref(int fd, const hammer2_volume_data_t *voldata,
-    const hammer2_blockref_t *bref, bool norecurse, blockref_stats_t *bstats)
+    const hammer2_blockref_t *bref, bool norecurse, blockref_stats_t *bstats,
+    struct blockref_tree *droot, delta_stats_t *dstats)
 {
 	hammer2_media_data_t media;
 	hammer2_blockref_t *bscan;
@@ -429,122 +731,149 @@ verify_blockref(int fd, const hammer2_volume_data_t *voldata,
 		uint64_t digest64[SHA256_DIGEST_LENGTH/8];
 	} u;
 
+	if (bref->data_off) {
+		struct blockref_entry *e;
+		e = RB_LOOKUP(blockref_tree, droot, bref->data_off);
+		if (e) {
+			struct blockref_msg *m;
+			TAILQ_FOREACH(m, &e->head, entry) {
+				delta_stats_t *ds = m->msg;
+				if (!memcmp(&m->bref, bref, sizeof(*bref))) {
+					if (DebugOpt)
+						print_blockref(stdout, &m->bref,
+						    "cache");
+					load_delta_stats(bstats, ds);
+					return 0;
+				}
+			}
+		}
+	}
+
 	bstats->total_blockref++;
+	dstats->total_blockref++;
 
 	switch (bref->type) {
 	case HAMMER2_BREF_TYPE_EMPTY:
-		bstats->total_empty++;
+		if (CountEmpty) {
+			bstats->total_empty++;
+			dstats->total_empty++;
+		} else {
+			bstats->total_blockref--;
+			dstats->total_blockref--;
+		}
 		break;
 	case HAMMER2_BREF_TYPE_INODE:
 		bstats->volume.total_inode++;
+		dstats->volume.total_inode++;
 		break;
 	case HAMMER2_BREF_TYPE_INDIRECT:
 		bstats->volume.total_indirect++;
+		dstats->volume.total_indirect++;
 		break;
 	case HAMMER2_BREF_TYPE_DATA:
 		bstats->volume.total_data++;
+		dstats->volume.total_data++;
 		break;
 	case HAMMER2_BREF_TYPE_DIRENT:
 		bstats->volume.total_dirent++;
+		dstats->volume.total_dirent++;
 		break;
 	case HAMMER2_BREF_TYPE_FREEMAP_NODE:
 		bstats->freemap.total_freemap_node++;
+		dstats->freemap.total_freemap_node++;
 		break;
 	case HAMMER2_BREF_TYPE_FREEMAP_LEAF:
 		bstats->freemap.total_freemap_leaf++;
+		dstats->freemap.total_freemap_leaf++;
 		break;
 	case HAMMER2_BREF_TYPE_VOLUME:
 		bstats->total_blockref--;
+		dstats->total_blockref--;
 		break;
 	case HAMMER2_BREF_TYPE_FREEMAP:
 		bstats->total_blockref--;
+		dstats->total_blockref--;
 		break;
 	default:
-		bstats->total_invalid++;
-		snprintf(msg, sizeof(msg),
-		    "Invalid blockref type %d", bref->type);
-		add_blockref_entry(bstats, bref, msg);
+		snprintf(msg, sizeof(msg), "Invalid blockref type %d",
+		    bref->type);
+		add_blockref_entry(&bstats->root, bref, msg, strlen(msg) + 1);
 		failed = true;
 		break;
 	}
 
-	bytes = (bref->data_off & HAMMER2_OFF_MASK_RADIX);
-	if (bytes)
-		bytes = (size_t)1 << bytes;
-	if (bref->type != HAMMER2_BREF_TYPE_VOLUME &&
-	    bref->type != HAMMER2_BREF_TYPE_FREEMAP)
-		bstats->total_bytes += bytes;
+	switch (read_media(fd, bref, &media, &bytes)) {
+	case -1:
+		strlcpy(msg, "Bad I/O bytes", sizeof(msg));
+		add_blockref_entry(&bstats->root, bref, msg, strlen(msg) + 1);
+		return -1;
+	case -2:
+		strlcpy(msg, "Failed to read media", sizeof(msg));
+		add_blockref_entry(&bstats->root, bref, msg, strlen(msg) + 1);
+		return -1;
+	default:
+		break;
+	}
 
-	if ((bstats->total_blockref % 100) == 0)
+	if (bref->type != HAMMER2_BREF_TYPE_VOLUME &&
+	    bref->type != HAMMER2_BREF_TYPE_FREEMAP) {
+		bstats->total_bytes += bytes;
+		dstats->total_bytes += bytes;
+	}
+
+	if (!CountEmpty && bref->type == HAMMER2_BREF_TYPE_EMPTY) {
+		assert(bytes == 0);
+		bstats->total_bytes -= bytes;
+		dstats->total_bytes -= bytes;
+	}
+
+	if (!DebugOpt && QuietOpt <= 0 && (bstats->total_blockref % 100) == 0)
 		print_blockref_stats(bstats, false);
 
-	if (bytes) {
-		hammer2_off_t io_off;
-		hammer2_off_t io_base;
-		size_t io_bytes;
-		size_t boff;
+	if (!bytes)
+		goto end;
 
-		io_off = bref->data_off & ~HAMMER2_OFF_MASK_RADIX;
-		io_base = io_off & ~(hammer2_off_t)(HAMMER2_MINIOSIZE - 1);
-		boff = io_off - io_base;
-
-		io_bytes = HAMMER2_MINIOSIZE;
-		while (io_bytes + boff < bytes)
-			io_bytes <<= 1;
-
-		if (io_bytes > sizeof(media)) {
-			snprintf(msg, sizeof(msg),
-			    "Bad I/O bytes %ju", io_bytes);
-			add_blockref_entry(bstats, bref, msg);
-			return -1;
+	switch (HAMMER2_DEC_CHECK(bref->methods)) {
+	case HAMMER2_CHECK_ISCSI32:
+		cv = hammer2_icrc32(&media, bytes);
+		if (bref->check.iscsi32.value != cv) {
+			strlcpy(msg, "Bad HAMMER2_CHECK_ISCSI32", sizeof(msg));
+			add_blockref_entry(&bstats->root, bref, msg,
+			    strlen(msg) + 1);
+			failed = true;
 		}
-		lseek(fd, io_base, SEEK_SET);
-		if (read(fd, &media, io_bytes) != (ssize_t)io_bytes) {
-			add_blockref_entry(bstats, bref,
-			    "Failed to read media");
-			return -1;
+		break;
+	case HAMMER2_CHECK_XXHASH64:
+		cv64 = XXH64(&media, bytes, XXH_HAMMER2_SEED);
+		if (bref->check.xxhash64.value != cv64) {
+			strlcpy(msg, "Bad HAMMER2_CHECK_XXHASH64", sizeof(msg));
+			add_blockref_entry(&bstats->root, bref, msg,
+			    strlen(msg) + 1);
+			failed = true;
 		}
-		if (boff)
-			memcpy(&media, (char *)&media + boff, bytes);
-
-		switch (HAMMER2_DEC_CHECK(bref->methods)) {
-		case HAMMER2_CHECK_ISCSI32:
-			cv = hammer2_icrc32(&media, bytes);
-			if (bref->check.iscsi32.value != cv) {
-				add_blockref_entry(bstats, bref,
-				    "Bad HAMMER2_CHECK_ISCSI32");
-				failed = true;
-			}
-			break;
-		case HAMMER2_CHECK_XXHASH64:
-			cv64 = XXH64(&media, bytes, XXH_HAMMER2_SEED);
-			if (bref->check.xxhash64.value != cv64) {
-				add_blockref_entry(bstats, bref,
-				    "Bad HAMMER2_CHECK_XXHASH64");
-				failed = true;
-			}
-			break;
-		case HAMMER2_CHECK_SHA192:
-			SHA256_Init(&hash_ctx);
-			SHA256_Update(&hash_ctx, &media, bytes);
-			SHA256_Final(u.digest, &hash_ctx);
-			u.digest64[2] ^= u.digest64[3];
-			if (memcmp(u.digest, bref->check.sha192.data,
-			    sizeof(bref->check.sha192.data))) {
-				add_blockref_entry(bstats, bref,
-				    "Bad HAMMER2_CHECK_SHA192");
-				failed = true;
-			}
-			break;
-		case HAMMER2_CHECK_FREEMAP:
-			cv = hammer2_icrc32(&media, bytes);
-			if (bref->check.freemap.icrc32 != cv) {
-				add_blockref_entry(bstats, bref,
-				    "Bad HAMMER2_CHECK_FREEMAP");
-				failed = true;
-			}
-			break;
+		break;
+	case HAMMER2_CHECK_SHA192:
+		SHA256_Init(&hash_ctx);
+		SHA256_Update(&hash_ctx, &media, bytes);
+		SHA256_Final(u.digest, &hash_ctx);
+		u.digest64[2] ^= u.digest64[3];
+		if (memcmp(u.digest, bref->check.sha192.data,
+		    sizeof(bref->check.sha192.data))) {
+			strlcpy(msg, "Bad HAMMER2_CHECK_SHA192", sizeof(msg));
+			add_blockref_entry(&bstats->root, bref, msg,
+			    strlen(msg) + 1);
+			failed = true;
 		}
+		break;
+	case HAMMER2_CHECK_FREEMAP:
+		cv = hammer2_icrc32(&media, bytes);
+		if (bref->check.freemap.icrc32 != cv) {
+			strlcpy(msg, "Bad HAMMER2_CHECK_FREEMAP", sizeof(msg));
+			add_blockref_entry(&bstats->root, bref, msg,
+			    strlen(msg) + 1);
+			failed = true;
+		}
+		break;
 	}
 
 	switch (bref->type) {
@@ -580,23 +909,267 @@ verify_blockref(int fd, const hammer2_volume_data_t *voldata,
 	}
 
 	if (ForceOpt)
-		norecurse = 0;
+		norecurse = false;
 	/*
 	 * If failed, no recurse, but still verify its direct children.
 	 * Beyond that is probably garbage.
 	 */
-	for (i = 0; norecurse == 0 && i < bcount; ++i)
-		if (bscan[i].type != HAMMER2_BREF_TYPE_EMPTY)
-			if (verify_blockref(fd, voldata, &bscan[i], failed,
-			    bstats) == -1)
-				return -1;
-	return failed ? -1 : 0;
+	for (i = 0; norecurse == false && i < bcount; ++i) {
+		delta_stats_t ds;
+		memset(&ds, 0, sizeof(ds));
+		if (verify_blockref(fd, voldata, &bscan[i], failed, bstats,
+		    droot, &ds) == -1)
+			return -1;
+		if (!failed)
+			accumulate_delta_stats(dstats, &ds);
+	}
+end:
+	if (failed)
+		return -1;
+
+	dstats->count++;
+	if (bref->data_off && BlockrefCacheCount > 0 &&
+	    dstats->count >= BlockrefCacheCount) {
+		assert(bytes);
+		add_blockref_entry(droot, bref, dstats, sizeof(*dstats));
+	}
+
+	return 0;
+}
+
+static int
+init_pfs_blockref(int fd, const hammer2_volume_data_t *voldata,
+    const hammer2_blockref_t *bref, struct blockref_list *blist)
+{
+	hammer2_media_data_t media;
+	hammer2_inode_data_t ipdata;
+	hammer2_blockref_t *bscan;
+	int i, bcount;
+	size_t bytes;
+
+	if (read_media(fd, bref, &media, &bytes))
+		return -1;
+	if (!bytes)
+		return 0;
+
+	switch (bref->type) {
+	case HAMMER2_BREF_TYPE_INODE:
+		ipdata = media.ipdata;
+		if (ipdata.meta.pfs_type & HAMMER2_PFSTYPE_SUPROOT) {
+			bscan = &ipdata.u.blockset.blockref[0];
+			bcount = HAMMER2_SET_COUNT;
+		} else {
+			bscan = NULL;
+			bcount = 0;
+			if (ipdata.meta.op_flags & HAMMER2_OPFLAG_PFSROOT) {
+				struct blockref_msg *newp, *p;
+				newp = calloc(1, sizeof(*newp));
+				assert(newp);
+				newp->bref = *bref;
+				newp->msg = calloc(1,
+				    sizeof(ipdata.filename) + 1);
+				memcpy(newp->msg, ipdata.filename,
+				    sizeof(ipdata.filename));
+				p = TAILQ_FIRST(blist);
+				while (p) {
+					if (strcmp(newp->msg, p->msg) <= 0) {
+						TAILQ_INSERT_BEFORE(p, newp,
+						    entry);
+						break;
+					}
+					p = TAILQ_NEXT(p, entry);
+				}
+				if (!p)
+					TAILQ_INSERT_TAIL(blist, newp, entry);
+			} else
+				assert(0); /* should only see SUPROOT or PFS */
+		}
+		break;
+	case HAMMER2_BREF_TYPE_INDIRECT:
+		bscan = &media.npdata[0];
+		bcount = bytes / sizeof(hammer2_blockref_t);
+		break;
+	case HAMMER2_BREF_TYPE_VOLUME:
+		bscan = &media.voldata.sroot_blockset.blockref[0];
+		bcount = HAMMER2_SET_COUNT;
+		break;
+	default:
+		bscan = NULL;
+		bcount = 0;
+		break;
+	}
+
+	for (i = 0; i < bcount; ++i)
+		if (init_pfs_blockref(fd, voldata, &bscan[i], blist) == -1)
+			return -1;
+	return 0;
+}
+
+static void
+cleanup_pfs_blockref(struct blockref_list *blist)
+{
+	cleanup_blockref_msg(blist);
+}
+
+static void
+print_media(FILE *fp, int tab, const hammer2_blockref_t *bref,
+    hammer2_media_data_t *media, size_t media_bytes)
+{
+	hammer2_blockref_t *bscan;
+	hammer2_inode_data_t *ipdata;
+	int i, bcount, namelen;
+	char *str = NULL;
+
+	switch (bref->type) {
+	case HAMMER2_BREF_TYPE_INODE:
+		ipdata = &media->ipdata;
+		namelen = ipdata->meta.name_len;
+		if (namelen > HAMMER2_INODE_MAXNAME)
+			namelen = 0;
+		tfprintf(fp, tab, "filename \"%*.*s\"\n", namelen, namelen,
+		    ipdata->filename);
+		tfprintf(fp, tab, "version %d\n", ipdata->meta.version);
+		tfprintf(fp, tab, "pfs_subtype %d\n", ipdata->meta.pfs_subtype);
+		tfprintf(fp, tab, "uflags 0x%08x\n", ipdata->meta.uflags);
+		if (ipdata->meta.rmajor || ipdata->meta.rminor) {
+			tfprintf(fp, tab, "rmajor %d\n", ipdata->meta.rmajor);
+			tfprintf(fp, tab, "rminor %d\n", ipdata->meta.rminor);
+		}
+		tfprintf(fp, tab, "ctime %s\n",
+		    hammer2_time64_to_str(ipdata->meta.ctime, &str));
+		tfprintf(fp, tab, "mtime %s\n",
+		    hammer2_time64_to_str(ipdata->meta.mtime, &str));
+		tfprintf(fp, tab, "atime %s\n",
+		    hammer2_time64_to_str(ipdata->meta.atime, &str));
+		tfprintf(fp, tab, "btime %s\n",
+		    hammer2_time64_to_str(ipdata->meta.btime, &str));
+		tfprintf(fp, tab, "uid %s\n",
+		    hammer2_uuid_to_str(&ipdata->meta.uid, &str));
+		tfprintf(fp, tab, "gid %s\n",
+		    hammer2_uuid_to_str(&ipdata->meta.gid, &str));
+		tfprintf(fp, tab, "type %s\n",
+		    hammer2_iptype_to_str(ipdata->meta.type));
+		tfprintf(fp, tab, "op_flags 0x%02x\n", ipdata->meta.op_flags);
+		tfprintf(fp, tab, "cap_flags 0x%04x\n", ipdata->meta.cap_flags);
+		tfprintf(fp, tab, "mode %-7o\n", ipdata->meta.mode);
+		tfprintf(fp, tab, "inum 0x%016jx\n", ipdata->meta.inum);
+		tfprintf(fp, tab, "size %ju ", (uintmax_t)ipdata->meta.size);
+		if (ipdata->meta.op_flags & HAMMER2_OPFLAG_DIRECTDATA &&
+		    ipdata->meta.size <= HAMMER2_EMBEDDED_BYTES)
+			printf("(embedded data)\n");
+		else
+			printf("\n");
+		tfprintf(fp, tab, "nlinks %ju\n",
+		    (uintmax_t)ipdata->meta.nlinks);
+		tfprintf(fp, tab, "iparent 0x%016jx\n",
+		    (uintmax_t)ipdata->meta.iparent);
+		tfprintf(fp, tab, "name_key 0x%016jx\n",
+		    (uintmax_t)ipdata->meta.name_key);
+		tfprintf(fp, tab, "name_len %u\n", ipdata->meta.name_len);
+		tfprintf(fp, tab, "ncopies %u\n", ipdata->meta.ncopies);
+		tfprintf(fp, tab, "comp_algo %u\n", ipdata->meta.comp_algo);
+		tfprintf(fp, tab, "target_type %u\n", ipdata->meta.target_type);
+		tfprintf(fp, tab, "check_algo %u\n", ipdata->meta.check_algo);
+		if ((ipdata->meta.op_flags & HAMMER2_OPFLAG_PFSROOT) ||
+		    ipdata->meta.pfs_type == HAMMER2_PFSTYPE_SUPROOT) {
+			tfprintf(fp, tab, "pfs_nmasters %u\n",
+			    ipdata->meta.pfs_nmasters);
+			tfprintf(fp, tab, "pfs_type %u (%s)\n",
+			    ipdata->meta.pfs_type,
+			    hammer2_pfstype_to_str(ipdata->meta.pfs_type));
+			tfprintf(fp, tab, "pfs_inum 0x%016jx\n",
+			    (uintmax_t)ipdata->meta.pfs_inum);
+			tfprintf(fp, tab, "pfs_clid %s\n",
+			    hammer2_uuid_to_str(&ipdata->meta.pfs_clid, &str));
+			tfprintf(fp, tab, "pfs_fsid %s\n",
+			    hammer2_uuid_to_str(&ipdata->meta.pfs_fsid, &str));
+			tfprintf(fp, tab, "pfs_lsnap_tid 0x%016jx\n",
+			    (uintmax_t)ipdata->meta.pfs_lsnap_tid);
+		}
+		tfprintf(fp, tab, "data_quota %ju\n",
+		    (uintmax_t)ipdata->meta.data_quota);
+		tfprintf(fp, tab, "data_count %ju\n",
+		    (uintmax_t)bref->embed.stats.data_count);
+		tfprintf(fp, tab, "inode_quota %ju\n",
+		    (uintmax_t)ipdata->meta.inode_quota);
+		tfprintf(fp, tab, "inode_count %ju\n",
+		    (uintmax_t)bref->embed.stats.inode_count);
+		break;
+	case HAMMER2_BREF_TYPE_INDIRECT:
+		bcount = media_bytes / sizeof(hammer2_blockref_t);
+		for (i = 0; i < bcount; ++i) {
+			bscan = &media->npdata[i];
+			tfprintf(fp, tab, "%3d %016jx %-12s %016jx/%-2d\n",
+			    i, (uintmax_t)bscan->data_off,
+			    hammer2_breftype_to_str(bscan->type),
+			    (uintmax_t)bscan->key,
+			    bscan->keybits);
+		}
+		break;
+	case HAMMER2_BREF_TYPE_DIRENT:
+		if (bref->embed.dirent.namlen <= sizeof(bref->check.buf)) {
+			tfprintf(fp, tab, "filename \"%*.*s\"\n",
+			    bref->embed.dirent.namlen,
+			    bref->embed.dirent.namlen,
+			    bref->check.buf);
+		} else {
+			tfprintf(fp, tab, "filename \"%*.*s\"\n",
+			    bref->embed.dirent.namlen,
+			    bref->embed.dirent.namlen,
+			    media->buf);
+		}
+		tfprintf(fp, tab, "inum 0x%016jx\n",
+		    (uintmax_t)bref->embed.dirent.inum);
+		tfprintf(fp, tab, "namlen %d\n",
+		    (uintmax_t)bref->embed.dirent.namlen);
+		tfprintf(fp, tab, "type %s\n",
+		    hammer2_iptype_to_str(bref->embed.dirent.type));
+		break;
+	case HAMMER2_BREF_TYPE_FREEMAP_NODE:
+		bcount = media_bytes / sizeof(hammer2_blockref_t);
+		for (i = 0; i < bcount; ++i) {
+			bscan = &media->npdata[i];
+			tfprintf(fp, tab, "%3d %016jx %-12s %016jx/%-2d\n",
+			    i, (uintmax_t)bscan->data_off,
+			    hammer2_breftype_to_str(bscan->type),
+			    (uintmax_t)bscan->key,
+			    bscan->keybits);
+		}
+		break;
+	case HAMMER2_BREF_TYPE_FREEMAP_LEAF:
+		for (i = 0; i < HAMMER2_FREEMAP_COUNT; ++i) {
+			hammer2_off_t data_off = bref->key +
+				i * HAMMER2_FREEMAP_LEVEL0_SIZE;
+#if HAMMER2_BMAP_ELEMENTS != 8
+#error "HAMMER2_BMAP_ELEMENTS != 8"
+#endif
+			tfprintf(fp, tab, "%016jx %04d.%04x (avail=%7d) "
+			    "%016jx %016jx %016jx %016jx "
+			    "%016jx %016jx %016jx %016jx\n",
+			    data_off, i, media->bmdata[i].class,
+			    media->bmdata[i].avail,
+			    media->bmdata[i].bitmapq[0],
+			    media->bmdata[i].bitmapq[1],
+			    media->bmdata[i].bitmapq[2],
+			    media->bmdata[i].bitmapq[3],
+			    media->bmdata[i].bitmapq[4],
+			    media->bmdata[i].bitmapq[5],
+			    media->bmdata[i].bitmapq[6],
+			    media->bmdata[i].bitmapq[7]);
+		}
+		break;
+	default:
+		break;
+	}
+	if (str)
+		free(str);
 }
 
 int
 test_hammer2(const char *devpath)
 {
 	struct stat st;
+	bool failed = false;
 	int fd;
 
 	fd = open(devpath, O_RDONLY);
@@ -607,13 +1180,13 @@ test_hammer2(const char *devpath)
 
 	if (fstat(fd, &st) == -1) {
 		perror("fstat");
-		close(fd);
-		return -1;
+		failed = true;
+		goto end;
 	}
 	if (!S_ISBLK(st.st_mode)) {
 		fprintf(stderr, "%s is not a block device\n", devpath);
-		close(fd);
-		return -1;
+		failed = true;
+		goto end;
 	}
 
 	best_zone = find_best_zone(fd);
@@ -622,27 +1195,33 @@ test_hammer2(const char *devpath)
 
 	printf("volume header\n");
 	if (test_volume_header(fd) == -1) {
-		if (!ForceOpt) {
-			close(fd);
-			return -1;
-		}
+		failed = true;
+		if (!ForceOpt)
+			goto end;
 	}
 
 	printf("freemap\n");
 	if (test_blockref(fd, HAMMER2_BREF_TYPE_FREEMAP) == -1) {
-		if (!ForceOpt) {
-			close(fd);
-			return -1;
-		}
+		failed = true;
+		if (!ForceOpt)
+			goto end;
 	}
 	printf("volume\n");
-	if (test_blockref(fd, HAMMER2_BREF_TYPE_VOLUME) == -1) {
-		if (!ForceOpt) {
-			close(fd);
-			return -1;
+	if (!ScanPFS) {
+		if (test_blockref(fd, HAMMER2_BREF_TYPE_VOLUME) == -1) {
+			failed = true;
+			if (!ForceOpt)
+				goto end;
+		}
+	} else {
+		if (test_pfs_blockref(fd) == -1) {
+			failed = true;
+			if (!ForceOpt)
+				goto end;
 		}
 	}
+end:
 	close(fd);
 
-	return 0;
+	return failed ? -1 : 0;
 }

@@ -71,7 +71,7 @@ static void alloc_direct(hammer2_off_t *basep, hammer2_blockref_t *bref,
 				size_t bytes);
 
 static int Hammer2Version = -1;
-static int ForceOpt = 0;
+static int ForceOpt;
 static hammer2_uuid_t Hammer2_FSType;	/* static filesystem type id for HAMMER2 */
 static hammer2_uuid_t Hammer2_VolFSID;	/* unique filesystem id in volu header */
 static hammer2_uuid_t Hammer2_SupCLID;	/* PFS cluster id in super-root inode */
@@ -125,7 +125,7 @@ main(int ac, char **av)
 	/*
 	 * Parse arguments
 	 */
-	while ((ch = getopt(ac, av, "fL:b:m:r:V:")) != -1) {
+	while ((ch = getopt(ac, av, "fL:b:r:V:")) != -1) {
 		switch(ch) {
 		case 'f':
 			ForceOpt = 1;
@@ -790,6 +790,7 @@ blkrefary_cmp(const void *b1, const void *b2)
 {
 	const hammer2_blockref_t *bref1 = b1;
 	const hammer2_blockref_t *bref2 = b2;
+
 	if (bref1->key < bref2->key)
 		return(-1);
 	if (bref1->key > bref2->key)

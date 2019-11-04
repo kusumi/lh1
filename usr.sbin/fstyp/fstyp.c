@@ -29,6 +29,7 @@
  *
  */
 
+#include <sys/param.h>
 #include <sys/ioctl.h>
 #include <sys/stat.h>
 #include <sys/mount.h>
@@ -41,11 +42,13 @@
 #include <string.h>
 #include <unistd.h>
 
+#include "../../lib/libc/string/util.h"
+
 #include "fstyp.h"
 
 #define	LABEL_LEN	256
 
-typedef int (*fstyp_function)(FILE *, char *, size_t);
+typedef int (*fstyp_function)(FILE *, char *, size_t, const char *);
 typedef int (*fsvtyp_function)(const char *, char *, size_t);
 
 static struct {
@@ -160,7 +163,9 @@ main(int argc, char **argv)
 	int ch, error, i;
 	bool ignore_type = false, show_label = false, show_unmountable = false;
 	char label[LABEL_LEN + 1];
-	char *path;
+	char fdpath[MAXPATHLEN];
+	char *p;
+	const char *path;
 	const char *name = NULL;
 	FILE *fp;
 	fstyp_function fstyp_f;
@@ -189,12 +194,27 @@ main(int argc, char **argv)
 
 	path = argv[0];
 
-	fp = fopen(path, "r");
-	if (fp == NULL)
-		goto fsvtyp; /* DragonFly */
+	/*
+	 * DragonFly: Filesystems may have syntax to decorate path.
+	 * Make a wild guess.
+	 */
+	strlcpy(fdpath, path, sizeof(fdpath));
+	p = strchr(fdpath, '@');
+	if (p)
+		*p = '\0';
+
+	fp = fopen(fdpath, "r");
+	if (fp == NULL) {
+		if (strcmp(path, fdpath))
+			fp = fopen(path, "r");
+		if (fp == NULL)
+			goto fsvtyp; /* DragonFly */
+		else
+			strlcpy(fdpath, path, sizeof(fdpath));
+	}
 
 	if (ignore_type == false)
-		type_check(path, fp);
+		type_check(fdpath, fp);
 
 	memset(label, '\0', sizeof(label));
 
@@ -205,7 +225,7 @@ main(int argc, char **argv)
 		if (fstyp_f == NULL)
 			break;
 
-		error = fstyp_f(fp, label, sizeof(label));
+		error = fstyp_f(fp, label, sizeof(label), path);
 		if (error == 0) {
 			name = fstypes[i].name;
 			goto done;
