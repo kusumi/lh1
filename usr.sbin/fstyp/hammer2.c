@@ -1,9 +1,7 @@
 /*-
  * Copyright (c) 2017-2019 The DragonFly Project
+ * Copyright (c) 2017-2019 Tomohiro Kusumi <tkusumi@netbsd.org>
  * All rights reserved.
- *
- * This software was developed by Edward Tomasz Napierala under sponsorship
- * from the FreeBSD Foundation.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -40,7 +38,7 @@
 #include "fstyp.h"
 
 static hammer2_volume_data_t*
-__read_voldata(FILE *fp)
+read_voldata(FILE *fp)
 {
 	hammer2_volume_data_t *voldata;
 
@@ -52,7 +50,7 @@ __read_voldata(FILE *fp)
 }
 
 static int
-__test_voldata(const hammer2_volume_data_t *voldata)
+test_voldata(const hammer2_volume_data_t *voldata)
 {
 	if (voldata->magic != HAMMER2_VOLUME_ID_HBO &&
 	    voldata->magic != HAMMER2_VOLUME_ID_ABO)
@@ -62,7 +60,7 @@ __test_voldata(const hammer2_volume_data_t *voldata)
 }
 
 static hammer2_media_data_t*
-__read_media(FILE *fp, const hammer2_blockref_t *bref, size_t *media_bytes)
+read_media(FILE *fp, const hammer2_blockref_t *bref, size_t *media_bytes)
 {
 	hammer2_media_data_t *media;
 	hammer2_off_t io_off, io_base;
@@ -107,7 +105,7 @@ __read_media(FILE *fp, const hammer2_blockref_t *bref, size_t *media_bytes)
 }
 
 static int
-__find_pfs(FILE *fp, const hammer2_blockref_t *bref, const char *pfs, bool *res)
+find_pfs(FILE *fp, const hammer2_blockref_t *bref, const char *pfs, bool *res)
 {
 	hammer2_media_data_t *media;
 	hammer2_inode_data_t ipdata;
@@ -115,7 +113,7 @@ __find_pfs(FILE *fp, const hammer2_blockref_t *bref, const char *pfs, bool *res)
 	size_t bytes;
 	int i, bcount;
 
-	media = __read_media(fp, bref, &bytes);
+	media = read_media(fp, bref, &bytes);
 	if (media == NULL)
 		return (-1);
 
@@ -155,7 +153,7 @@ __find_pfs(FILE *fp, const hammer2_blockref_t *bref, const char *pfs, bool *res)
 
 	for (i = 0; i < bcount; ++i) {
 		if (bscan[i].type != HAMMER2_BREF_TYPE_EMPTY) {
-			if (__find_pfs(fp, &bscan[i], pfs, res) == -1) {
+			if (find_pfs(fp, &bscan[i], pfs, res) == -1) {
 				free(media);
 				return (-1);
 			}
@@ -166,8 +164,33 @@ __find_pfs(FILE *fp, const hammer2_blockref_t *bref, const char *pfs, bool *res)
 	return (0);
 }
 
+static char*
+extract_device_name(const char *devpath)
+{
+	char *p = strdup(devpath);
+	char *head = p;
+
+	p = strchr(p, '@');
+	if (p)
+		*p = 0;
+
+	p = strrchr(head, '/');
+	if (p) {
+		p++;
+		if (*p == 0) {
+			free(head);
+			return NULL;
+		}
+		p = strdup(p);
+		free(head);
+		return p;
+	}
+
+	return head;
+}
+
 static int
-__read_label(FILE *fp, char *label, size_t size, const char *devpath)
+read_label(FILE *fp, char *label, size_t size, const char *devpath)
 {
 	hammer2_blockref_t broot, best, *bref;
 	hammer2_media_data_t *vols[HAMMER2_NUM_VOLHDRS], *media;
@@ -175,6 +198,7 @@ __read_label(FILE *fp, char *label, size_t size, const char *devpath)
 	bool res = false;
 	int i, best_i, error = 0;
 	const char *pfs;
+	char *devname;
 
 	best_i = -1;
 	memset(&best, 0, sizeof(best));
@@ -204,7 +228,7 @@ __read_label(FILE *fp, char *label, size_t size, const char *devpath)
 		goto done;
 	}
 
-	media = __read_media(fp, bref, &bytes);
+	media = read_media(fp, bref, &bytes);
 	if (media == NULL) {
 		error = 1;
 		goto done;
@@ -232,11 +256,25 @@ __read_label(FILE *fp, char *label, size_t size, const char *devpath)
 		goto done;
 	}
 
-	/* XXX autofs -media mount can't handle multiple mounts */
-	if (__find_pfs(fp, bref, pfs, &res) == 0 && res)
-		strlcpy(label, pfs, size);
-	else
-		strlcpy(label, (char*)media->ipdata.filename, size);
+	devname = extract_device_name(devpath);
+
+	/* Add device name to help support multiple autofs -media mounts. */
+	if (find_pfs(fp, bref, pfs, &res) == 0 && res) {
+		if (devname)
+			snprintf(label, size, "%s_%s", pfs, devname);
+		else
+			strlcpy(label, pfs, size);
+	} else {
+		memset(label, 0, size);
+		memcpy(label, media->ipdata.filename,
+		    sizeof(media->ipdata.filename));
+		if (devname) {
+			strlcat(label, "_", size);
+			strlcat(label, devname, size);
+		}
+	}
+	if (devname)
+		free(devname);
 	free(media);
 done:
 	for (i = 0; i < HAMMER2_NUM_VOLHDRS; i++)
@@ -251,11 +289,11 @@ fstyp_hammer2(FILE *fp, char *label, size_t size, const char *devpath)
 	hammer2_volume_data_t *voldata;
 	int error = 1;
 
-	voldata = __read_voldata(fp);
-	if (__test_voldata(voldata))
+	voldata = read_voldata(fp);
+	if (test_voldata(voldata))
 		goto done;
 
-	error = __read_label(fp, label, size, devpath);
+	error = read_label(fp, label, size, devpath);
 done:
 	free(voldata);
 	return (error);

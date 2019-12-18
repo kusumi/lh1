@@ -1,4 +1,4 @@
-lh1 - Linux HAMMER (v0.1.10)
+lh1 - Linux HAMMER (v0.1.11)
 ===
 
 ## About
@@ -6,6 +6,8 @@ lh1 - Linux HAMMER (v0.1.10)
 + HAMMER1/2 userspace utilities on Linux / x86_64.
 
 ## Changes
+
++ 2019.12.19 / v0.1.11 - Sync with DragonFly BSD.
 
 + 2019.11.04 / v0.1.10 - Sync with DragonFly BSD.
 

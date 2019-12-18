@@ -1,9 +1,7 @@
 /*-
- * Copyright (c) 2016 The DragonFly Project
+ * Copyright (c) 2016-2019 The DragonFly Project
+ * Copyright (c) 2016-2019 Tomohiro Kusumi <tkusumi@netbsd.org>
  * All rights reserved.
- *
- * This software was developed by Edward Tomasz Napierala under sponsorship
- * from the FreeBSD Foundation.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -39,7 +37,7 @@
 #include "fstyp.h"
 
 static hammer_volume_ondisk_t
-__read_ondisk(FILE *fp)
+read_ondisk(FILE *fp)
 {
 	hammer_volume_ondisk_t ondisk;
 
@@ -51,7 +49,7 @@ __read_ondisk(FILE *fp)
 }
 
 static int
-__test_ondisk(const hammer_volume_ondisk_t ondisk)
+test_ondisk(const hammer_volume_ondisk_t ondisk)
 {
 	static int count = 0;
 	static hammer_uuid_t fsid, fstype;
@@ -92,16 +90,26 @@ fstyp_hammer(FILE *fp, char *label, size_t size, const char *devpath)
 {
 	hammer_volume_ondisk_t ondisk;
 	int error = 1;
+	const char *p;
 
-	ondisk = __read_ondisk(fp);
+	ondisk = read_ondisk(fp);
 	if (ondisk->vol_no != HAMMER_ROOT_VOLNO)
 		goto done;
 	if (ondisk->vol_count != 1)
 		goto done;
-	if (__test_ondisk(ondisk))
+	if (test_ondisk(ondisk))
 		goto done;
 
-	strlcpy(label, ondisk->vol_label, size);
+	/* Add device name to help support multiple autofs -media mounts. */
+	p = strrchr(devpath, '/');
+	if (p) {
+		p++;
+		if (*p == 0)
+			strlcpy(label, ondisk->vol_label, size);
+		else
+			snprintf(label, size, "%s_%s", ondisk->vol_label, p);
+	} else
+		snprintf(label, size, "%s_%s", ondisk->vol_label, devpath);
 	error = 0;
 done:
 	free(ondisk);
@@ -109,7 +117,7 @@ done:
 }
 
 static int
-__test_volume(const char *volpath)
+test_volume(const char *volpath)
 {
 	hammer_volume_ondisk_t ondisk;
 	FILE *fp;
@@ -118,9 +126,9 @@ __test_volume(const char *volpath)
 	if ((fp = fopen(volpath, "r")) == NULL)
 		err(1, "failed to open %s", volpath);
 
-	ondisk = __read_ondisk(fp);
+	ondisk = read_ondisk(fp);
 	fclose(fp);
-	if (__test_ondisk(ondisk))
+	if (test_ondisk(ondisk))
 		goto done;
 
 	volno = ondisk->vol_no;
@@ -145,14 +153,14 @@ __fsvtyp_hammer(const char *blkdevs, char *label, size_t size, int partial)
 		volpath = p;
 		if ((p = strchr(p, ':')) != NULL)
 			*p++ = '\0';
-		if ((volno = __test_volume(volpath)) == -1)
+		if ((volno = test_volume(volpath)) == -1)
 			break;
 		x[volno]++;
 	}
 
 	if ((fp = fopen(volpath, "r")) == NULL)
 		err(1, "failed to open %s", volpath);
-	ondisk = __read_ondisk(fp);
+	ondisk = read_ondisk(fp);
 	fclose(fp);
 
 	free(dup);

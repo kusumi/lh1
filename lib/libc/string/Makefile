@@ -1,4 +1,4 @@
-SRCS1=	strlcpy.c
+SRCS1=	strlcpy.c strlcat.c
 
 OBJS1 := $(SRCS1:.c=.o)
 

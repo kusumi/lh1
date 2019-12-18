@@ -38,5 +38,6 @@
 #include <sys/types.h>
 
 size_t	 strlcpy(char * __restrict, const char * __restrict, size_t);
+size_t	 strlcat(char * __restrict, const char * __restrict, size_t);
 
 #endif /* !LIBC_STRING_UTIL_H_ */

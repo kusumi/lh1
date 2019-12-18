@@ -11,7 +11,7 @@ CFLAGS+= -I../../sys -Wall -g
 
 all: $(PROG)
 $(PROG): $(OBJS) ../../lib/libc/string
-	$(CC) $(CFLAGS) -o $@ $(OBJS) ../../lib/libc/string/strlcpy.o
+	$(CC) $(CFLAGS) -o $@ $(OBJS) ../../lib/libc/string/strlcpy.o ../../lib/libc/string/strlcat.o
 .c.o:
 	$(CC) $(CFLAGS) -c $<
 clean:
