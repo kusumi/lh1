@@ -72,7 +72,7 @@ read_media(FILE *fp, const hammer2_blockref_t *bref, size_t *media_bytes)
 	*media_bytes = bytes;
 
 	if (!bytes) {
-		warnx("Blockref has no data");
+		warnx("blockref has no data");
 		return (NULL);
 	}
 
@@ -85,17 +85,17 @@ read_media(FILE *fp, const hammer2_blockref_t *bref, size_t *media_bytes)
 		io_bytes <<= 1;
 
 	if (io_bytes > sizeof(hammer2_media_data_t)) {
-		warnx("Invalid I/O bytes");
+		warnx("invalid I/O bytes");
 		return (NULL);
 	}
 
 	if (fseek(fp, io_base, SEEK_SET) == -1) {
-		warnx("Failed to seek media");
+		warnx("failed to seek media");
 		return (NULL);
 	}
 	media = read_buf(fp, io_base, io_bytes);
 	if (media == NULL) {
-		warnx("Failed to read media");
+		warnx("failed to read media");
 		return (NULL);
 	}
 	if (boff)
@@ -133,7 +133,8 @@ find_pfs(FILE *fp, const hammer2_blockref_t *bref, const char *pfs, bool *res)
 					    (const char*)ipdata.filename, pfs))
 						*res = true;
 				} else {
-					if (!memcmp(ipdata.filename, pfs,
+					if (strlen(pfs) > 0 &&
+					    !memcmp(ipdata.filename, pfs,
 					    strlen(pfs)))
 						*res = true;
 				}
@@ -167,8 +168,13 @@ find_pfs(FILE *fp, const hammer2_blockref_t *bref, const char *pfs, bool *res)
 static char*
 extract_device_name(const char *devpath)
 {
-	char *p = strdup(devpath);
-	char *head = p;
+	char *p, *head;
+
+	if (!devpath)
+		return NULL;
+
+	p = strdup(devpath);
+	head = p;
 
 	p = strchr(p, '@');
 	if (p)
@@ -196,7 +202,7 @@ read_label(FILE *fp, char *label, size_t size, const char *devpath)
 	hammer2_media_data_t *vols[HAMMER2_NUM_VOLHDRS], *media;
 	size_t bytes;
 	bool res = false;
-	int i, best_i, error = 0;
+	int i, best_i, error = 1;
 	const char *pfs;
 	char *devname;
 
@@ -215,25 +221,23 @@ read_label(FILE *fp, char *label, size_t size, const char *devpath)
 			best = broot;
 		}
 	}
-	if (best_i == -1) {
-		warnx("Failed to find best zone");
-		error = 1;
-		goto done;
-	}
 
 	bref = &vols[best_i]->voldata.sroot_blockset.blockref[0];
 	if (bref->type != HAMMER2_BREF_TYPE_INODE) {
-		warnx("Blockref type is not inode");
-		error = 1;
-		goto done;
+		warnx("blockref type is not inode");
+		goto fail;
 	}
 
 	media = read_media(fp, bref, &bytes);
 	if (media == NULL) {
-		error = 1;
-		goto done;
+		goto fail;
 	}
 
+	/*
+	 * fstyp_function in DragonFly takes an additional devpath argument
+	 * which doesn't exist in FreeBSD and NetBSD.
+	 */
+#ifdef HAS_DEVPATH
 	pfs = strchr(devpath, '@');
 	if (!pfs) {
 		assert(strlen(devpath));
@@ -252,11 +256,14 @@ read_label(FILE *fp, char *label, size_t size, const char *devpath)
 		pfs++;
 
 	if (strlen(pfs) > HAMMER2_INODE_MAXNAME) {
-		error = 1;
-		goto done;
+		goto fail;
 	}
-
 	devname = extract_device_name(devpath);
+#else
+	pfs = "";
+	devname = extract_device_name(NULL);
+	assert(!devname);
+#endif
 
 	/* Add device name to help support multiple autofs -media mounts. */
 	if (find_pfs(fp, bref, pfs, &res) == 0 && res) {
@@ -276,7 +283,8 @@ read_label(FILE *fp, char *label, size_t size, const char *devpath)
 	if (devname)
 		free(devname);
 	free(media);
-done:
+	error = 0;
+fail:
 	for (i = 0; i < HAMMER2_NUM_VOLHDRS; i++)
 		free(vols[i]);
 
@@ -291,10 +299,10 @@ fstyp_hammer2(FILE *fp, char *label, size_t size, const char *devpath)
 
 	voldata = read_voldata(fp);
 	if (test_voldata(voldata))
-		goto done;
+		goto fail;
 
 	error = read_label(fp, label, size, devpath);
-done:
+fail:
 	free(voldata);
 	return (error);
 }

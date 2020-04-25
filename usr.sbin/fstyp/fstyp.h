@@ -34,6 +34,20 @@
 #define	FSTYP_H
 
 #include <stdint.h>
+#include <stdbool.h>
+
+/* Undefine this on FreeBSD and NetBSD. */
+#define HAS_DEVPATH
+
+/* The spec doesn't seem to permit UTF-16 surrogates; definitely LE. */
+#define	EXFAT_ENC	"UCS-2LE"
+/*
+ * NTFS itself is agnostic to encoding; it just stores 255 u16 wchars.  In
+ * practice, UTF-16 seems expected for NTFS.  (Maybe also for exFAT.)
+ */
+#define	NTFS_ENC	"UTF-16LE"
+
+extern bool	show_label;	/* -l flag */
 
 void	*read_buf(FILE *fp, off_t off, size_t len);
 char	*checked_strdup(const char *s);

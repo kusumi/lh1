@@ -70,7 +70,7 @@ test_ondisk(const hammer_volume_ondisk_t ondisk)
 		assert(count != 0);
 		memcpy(&fsid, &ondisk->vol_fsid, sizeof(fsid));
 		memcpy(&fstype, &ondisk->vol_fstype, sizeof(fstype));
-		strncpy(label, ondisk->vol_label, sizeof(label));
+		strlcpy(label, ondisk->vol_label, sizeof(label));
 	} else {
 		if (ondisk->vol_count != count)
 			return (5);
@@ -78,7 +78,7 @@ test_ondisk(const hammer_volume_ondisk_t ondisk)
 			return (6);
 		if (memcmp(&ondisk->vol_fstype, &fstype, sizeof(fstype)))
 			return (7);
-		if (strncmp(ondisk->vol_label, label, sizeof(label)))
+		if (strcmp(ondisk->vol_label, label))
 			return (8);
 	}
 
@@ -90,16 +90,22 @@ fstyp_hammer(FILE *fp, char *label, size_t size, const char *devpath)
 {
 	hammer_volume_ondisk_t ondisk;
 	int error = 1;
+#ifdef HAS_DEVPATH
 	const char *p;
-
+#endif
 	ondisk = read_ondisk(fp);
 	if (ondisk->vol_no != HAMMER_ROOT_VOLNO)
-		goto done;
+		goto fail;
 	if (ondisk->vol_count != 1)
-		goto done;
+		goto fail;
 	if (test_ondisk(ondisk))
-		goto done;
+		goto fail;
 
+	/*
+	 * fstyp_function in DragonFly takes an additional devpath argument
+	 * which doesn't exist in FreeBSD and NetBSD.
+	 */
+#ifdef HAS_DEVPATH
 	/* Add device name to help support multiple autofs -media mounts. */
 	p = strrchr(devpath, '/');
 	if (p) {
@@ -110,8 +116,11 @@ fstyp_hammer(FILE *fp, char *label, size_t size, const char *devpath)
 			snprintf(label, size, "%s_%s", ondisk->vol_label, p);
 	} else
 		snprintf(label, size, "%s_%s", ondisk->vol_label, devpath);
+#else
+	strlcpy(label, ondisk->vol_label, size);
+#endif
 	error = 0;
-done:
+fail:
 	free(ondisk);
 	return (error);
 }
@@ -129,10 +138,10 @@ test_volume(const char *volpath)
 	ondisk = read_ondisk(fp);
 	fclose(fp);
 	if (test_ondisk(ondisk))
-		goto done;
+		goto fail;
 
 	volno = ondisk->vol_no;
-done:
+fail:
 	free(ondisk);
 	return (volno);
 }
@@ -140,24 +149,33 @@ done:
 static int
 __fsvtyp_hammer(const char *blkdevs, char *label, size_t size, int partial)
 {
-	hammer_volume_ondisk_t ondisk;
+	hammer_volume_ondisk_t ondisk = NULL;
 	FILE *fp;
 	char *dup, *p, *volpath, x[HAMMER_MAX_VOLUMES];
 	int i, volno, error = 1;
+
+	if (!blkdevs)
+		goto fail;
 
 	memset(x, 0, sizeof(x));
 	dup = strdup(blkdevs);
 	p = dup;
 
+	volpath = NULL;
+	volno = -1;
 	while (p) {
 		volpath = p;
 		if ((p = strchr(p, ':')) != NULL)
 			*p++ = '\0';
 		if ((volno = test_volume(volpath)) == -1)
 			break;
+		assert(volno >= 0);
+		assert(volno < HAMMER_MAX_VOLUMES);
 		x[volno]++;
 	}
 
+	if (!volpath)
+		err(1, "invalid path %s", blkdevs);
 	if ((fp = fopen(volpath, "r")) == NULL)
 		err(1, "failed to open %s", volpath);
 	ondisk = read_ondisk(fp);
@@ -166,26 +184,26 @@ __fsvtyp_hammer(const char *blkdevs, char *label, size_t size, int partial)
 	free(dup);
 
 	if (volno == -1)
-		goto done;
+		goto fail;
 	if (partial)
 		goto success;
 
 	for (i = 0; i < HAMMER_MAX_VOLUMES; i++)
 		if (x[i] > 1)
-			goto done;
+			goto fail;
 	for (i = 0; i < HAMMER_MAX_VOLUMES; i++)
 		if (x[i] == 0)
 			break;
 	if (ondisk->vol_count != i)
-		goto done;
+		goto fail;
 	for (; i < HAMMER_MAX_VOLUMES; i++)
 		if (x[i] != 0)
-			goto done;
+			goto fail;
 success:
 	/* XXX autofs -media mount can't handle multiple mounts */
 	strlcpy(label, ondisk->vol_label, size);
 	error = 0;
-done:
+fail:
 	free(ondisk);
 	return (error);
 }

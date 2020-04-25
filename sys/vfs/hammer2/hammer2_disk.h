@@ -742,7 +742,7 @@ typedef struct hammer2_blockref hammer2_blockref_t;
 #define HAMMER2_BREF_TYPE_VOLUME	255	/* pseudo-type */
 
 #define HAMMER2_BREF_FLAG_PFSROOT	0x01	/* see also related opflag */
-#define HAMMER2_BREF_FLAG_ZERO		0x02
+#define HAMMER2_BREF_FLAG_ZERO		0x02	/* NO LONGER USED */
 #define HAMMER2_BREF_FLAG_EMERG_MIP	0x04	/* emerg modified-in-place */
 
 /*
@@ -1000,7 +1000,7 @@ struct hammer2_inode_meta {
 	uint8_t		check_algo;	/* 0085 check code request & algo */
 	uint8_t		pfs_nmasters;	/* 0086 (if PFSROOT) if multi-master */
 	uint8_t		pfs_type;	/* 0087 (if PFSROOT) node type */
-	uint64_t	pfs_inum;	/* 0088 (if PFSROOT) inum allocator */
+	hammer2_tid_t	pfs_inum;	/* 0088 (if PFSROOT) inum allocator */
 	hammer2_uuid_t	pfs_clid;	/* 0090 (if PFSROOT) cluster uuid */
 	hammer2_uuid_t	pfs_fsid;	/* 00A0 (if PFSROOT) unique uuid */
 

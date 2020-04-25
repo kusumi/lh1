@@ -35,6 +35,7 @@
 #include <sys/mount.h>
 #include <err.h>
 #include <errno.h>
+#include <locale.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -48,6 +49,8 @@
 
 #define	LABEL_LEN	512
 
+bool show_label = false;
+
 typedef int (*fstyp_function)(FILE *, char *, size_t, const char *);
 typedef int (*fsvtyp_function)(const char *, char *, size_t);
 
@@ -55,20 +58,22 @@ static struct {
 	const char	*name;
 	fstyp_function	function;
 	bool		unmountable;
+	const char	*precache_encoding;
 } fstypes[] = {
-	{ "hammer", &fstyp_hammer, false },
-	{ "hammer2", &fstyp_hammer2, false },
-	{ NULL, NULL, NULL }
+	{ "hammer", &fstyp_hammer, false, NULL },
+	{ "hammer2", &fstyp_hammer2, false, NULL },
+	{ NULL, NULL, NULL, NULL }
 };
 
 static struct {
 	const char	*name;
 	fsvtyp_function	function;
 	bool		unmountable;
+	const char	*precache_encoding;
 } fsvtypes[] = {
-	{ "hammer", &fsvtyp_hammer, false }, /* Must be before partial */
-	{ "hammer(partial)", &fsvtyp_hammer_partial, true },
-	{ NULL, NULL, NULL }
+	{ "hammer", &fsvtyp_hammer, false, NULL }, /* Must be before partial */
+	{ "hammer(partial)", &fsvtyp_hammer_partial, true, NULL },
+	{ NULL, NULL, NULL, NULL }
 };
 
 void *
@@ -160,7 +165,7 @@ int
 main(int argc, char **argv)
 {
 	int ch, error, i;
-	bool ignore_type = false, show_label = false, show_unmountable = false;
+	bool ignore_type = false, show_unmountable = false;
 	char label[LABEL_LEN + 1];
 	char fdpath[MAXPATHLEN];
 	char *p;
@@ -192,6 +197,9 @@ main(int argc, char **argv)
 		usage();
 
 	path = argv[0];
+
+	if (setlocale(LC_CTYPE, "") == NULL)
+		err(1, "setlocale");
 
 	/*
 	 * DragonFly: Filesystems may have syntax to decorate path.
