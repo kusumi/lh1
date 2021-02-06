@@ -10,7 +10,7 @@ CFLAGS+= -I../../sys -I../../lib/libutil -I../../include -I../../lib/libdmsg -Wa
 .PHONY: all clean
 
 all: $(PROG)
-$(PROG): $(OBJS) ../../lib/libutil/
+$(PROG): $(OBJS) ../../lib/libutil
 	$(CC) $(CFLAGS) -o $@ $(OBJS) ../../lib/libutil/getmntopts.o
 .c.o:
 	$(CC) $(CFLAGS) -c $<

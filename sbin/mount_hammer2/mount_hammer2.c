@@ -59,7 +59,7 @@ static void usage(const char *ctl, ...);
 
 static struct mntopt mopts[] = {
 	MOPT_STDOPTS,
-	{ "update", 0, MNT_UPDATE, 0 },
+	MOPT_UPDATE,
 	{ "local", 0, HMNT2_LOCAL, 1 },
 	MOPT_NULL
 };
@@ -181,7 +181,7 @@ main(int ac, char *av[])
 	/*
 	 * Try to mount it, prefix if necessary.
 	 */
-	if (devpath[0] != '/' && devpath[0] != '@') {
+	if (!strchr(devpath, ':') && devpath[0] != '/' && devpath[0] != '@') {
 		char *p2;
 		asprintf(&p2, "/dev/%s", devpath);
 		free(devpath);
@@ -193,12 +193,19 @@ main(int ac, char *av[])
 	if (error < 0) {
 		if (errno == ERANGE) {
 			fprintf(stderr,
-				"%s integrated with %s\n",
+				"mount_hammer2: %s integrated with %s\n",
 				info.volume, mountpt);
+		} else if (errno == ENOENT) {
+			fprintf(stderr, "mount_hammer2: %s not found\n",
+				info.volume);
+		} else if (errno == ENXIO) {
+			fprintf(stderr, "mount_hammer2: incorrect volume "
+				"specification %s\n",
+				info.volume);
 		} else {
 			perror("mount");
-			exit(1);
 		}
+		exit(1);
 	}
 #endif
 	free(devpath);

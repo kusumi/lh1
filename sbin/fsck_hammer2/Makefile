@@ -11,8 +11,8 @@ CFLAGS+= -DXXH_NAMESPACE=h2_
 .PHONY: all clean
 
 all: $(PROG)
-$(PROG): $(OBJS) ../hammer2/ ../../sys/libkern/ ../../sys/vfs/hammer2/xxhash ../../lib/libc/string
-	$(CC) $(CFLAGS) -o $@ $(OBJS) ../hammer2/uuid.o ../hammer2/subs.o ../../sys/libkern/icrc32.o ../../sys/vfs/hammer2/xxhash/xxhash.o ../../lib/libc/string/strlcpy.o ../../lib/libc/string/strlcat.o -luuid -lcrypto
+$(PROG): $(OBJS) ../hammer2 ../../sys/libkern ../../sys/vfs/hammer2/xxhash ../../lib/libc/gen ../../lib/libc/string
+	$(CC) $(CFLAGS) -o $@ $(OBJS) ../hammer2/uuid.o ../hammer2/ondisk.o ../hammer2/subs.o ../../sys/libkern/icrc32.o ../../sys/vfs/hammer2/xxhash/xxhash.o ../../lib/libc/gen/getdevpath.o ../../lib/libc/string/strlcpy.o ../../lib/libc/string/strlcat.o -luuid -lcrypto
 .c.o:
 	$(CC) $(CFLAGS) -c $<
 clean:

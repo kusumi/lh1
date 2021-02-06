@@ -46,7 +46,7 @@ cmd_stat(int ac, const char **av)
 {
 	hammer2_ioc_inode_t ino;
 	const char *cdir = ".";
-	int ec = 0;
+	int ecode = 0;
 	int w;
 	int i;
 	int fd;
@@ -61,36 +61,35 @@ cmd_stat(int ac, const char **av)
 	}
 	if (w < 16)
 		w = 16;
-	printf("%-*.*s ncp  data-use inode-use comp kaddr\n", w, w, "PATH");
+	printf("%-*.*s ncp  data-use inode-use comp               check        quota\n",
+		w, w, "PATH");
 	for (i = 0; i < ac; ++i) {
 		if ((fd = open(av[i], O_RDONLY)) < 0) {
 			fprintf(stderr, "%s: %s\n", av[i], strerror(errno));
-			ec = 1;
+			ecode = 1;
 			continue;
 		}
 		if (ioctl(fd, HAMMER2IOC_INODE_GET, &ino) < 0) {
 			fprintf(stderr, "%s: %s\n", av[i], strerror(errno));
-			ec = 1;
+			ecode = 1;
 			continue;
 		}
 		printf("%-*.*s ", w, w, av[i]);
 		printf("%3d ", ino.ip_data.meta.ncopies);
 		printf("%9s ", sizetostr(ino.data_count));
 		printf("%9s ", counttostr(ino.inode_count));
-		/*printf("%p ", ino.kdata); debugging */
-		printf("comp=%s ", compmodestr(ino.ip_data.meta.comp_algo));
-		printf("check=%s ", checkmodestr(ino.ip_data.meta.check_algo));
+		printf("%-18s ", compmodestr(ino.ip_data.meta.comp_algo));
+		printf("%-12s ", checkmodestr(ino.ip_data.meta.check_algo));
 		if (ino.ip_data.meta.data_quota ||
 		    ino.ip_data.meta.inode_quota) {
-			printf(" quota ");
-			printf("%12s",
+			printf("%s",
 				sizetostr(ino.ip_data.meta.data_quota));
 			printf("/%-12s",
 				counttostr(ino.ip_data.meta.inode_quota));
 		}
 		printf("\n");
 	}
-	return ec;
+	return ecode;
 }
 
 static

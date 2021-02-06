@@ -15,7 +15,6 @@
  *    Peter Wemm.
  *
  * $FreeBSD: src/lib/libc/gen/setproctitle.c,v 1.18 2003/07/01 09:45:35 alfred Exp $
- * $DragonFly: src/lib/libc/gen/setproctitle.c,v 1.5 2005/11/13 00:07:42 swildner Exp $
  */
 
 #include <sys/types.h>
@@ -69,20 +68,26 @@ setproctitle(const char *fmt, ...)
 
 	va_start(ap, fmt);
 
-	if (__ukp_spt(fmt, ap) == 0)
+	if (__ukp_spt(fmt, ap) == 0) {
+		va_end(ap);
 		return;
+	}
 
 	if (buf == NULL) {
 		buf = malloc(SPT_BUFSIZE);
-		if (buf == NULL)
+		if (buf == NULL) {
+			va_end(ap);
 			return;
+		}
 		nargv[0] = buf;
 	}
 
 	if (obuf == NULL ) {
 		obuf = malloc(SPT_BUFSIZE);
-		if (obuf == NULL)
+		if (obuf == NULL) {
+			va_end(ap);
 			return;
+		}
 		*obuf = '\0';
 	}
 
@@ -110,9 +115,11 @@ setproctitle(const char *fmt, ...)
 		nargvp = oargv;
 		nargc = oargc;
 		kbuf = obuf;
-	} else
+	} else {
 		/* Nothing to restore */
+		va_end(ap);
 		return;
+	}
 
 	va_end(ap);
 

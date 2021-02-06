@@ -34,14 +34,17 @@
  */
 
 #include <sys/types.h>
+#include <sys/stat.h>
 #include <sys/time.h>
 #include <sys/ioctl.h>
+#include <sys/mount.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+#include <err.h>
 #include <uuid/uuid.h>
 
 #include <vfs/hammer2/hammer2_disk.h>
@@ -94,7 +97,7 @@ hammer2_time64_to_str(uint64_t htime64, char **strp)
 }
 
 const char *
-hammer2_uuid_to_str(hammer2_uuid_t *uuid, char **strp)
+hammer2_uuid_to_str(const hammer2_uuid_t *uuid, char **strp)
 {
 	if (*strp) {
 		free(*strp);
@@ -157,9 +160,24 @@ hammer2_pfstype_to_str(uint8_t type)
 }
 
 const char *
+hammer2_pfssubtype_to_str(uint8_t subtype)
+{
+	switch(subtype) {
+	case HAMMER2_PFSSUBTYPE_NONE:
+		return("NONE");
+	case HAMMER2_PFSSUBTYPE_SNAPSHOT:
+		return("SNAPSHOT");
+	case HAMMER2_PFSSUBTYPE_AUTOSNAP:
+		return("AUTOSNAP");
+	default:
+		return("ILLEGAL");
+	}
+}
+
+const char *
 hammer2_breftype_to_str(uint8_t type)
 {
-	switch (type) {
+	switch(type) {
 	case HAMMER2_BREF_TYPE_EMPTY:
 		return("empty");
 	case HAMMER2_BREF_TYPE_INODE:
@@ -174,6 +192,8 @@ hammer2_breftype_to_str(uint8_t type)
 		return("freemap_node");
 	case HAMMER2_BREF_TYPE_FREEMAP_LEAF:
 		return("freemap_leaf");
+	case HAMMER2_BREF_TYPE_INVALID:
+		return("invalid");
 	case HAMMER2_BREF_TYPE_FREEMAP:
 		return("freemap");
 	case HAMMER2_BREF_TYPE_VOLUME:
@@ -228,6 +248,40 @@ counttostr(hammer2_off_t size)
 			 (double)(size / (1024 * 1024 * 1024LL * 1024LL)));
 	}
 	return(buf);
+}
+
+hammer2_off_t
+check_volume(int fd)
+{
+	struct stat st;
+	hammer2_off_t size;
+
+	/*
+	 * Get basic information about the volume
+	 */
+	if (ioctl(fd, BLKGETSIZE, &size) < 0) {
+		/*
+		 * Allow the formatting of regular files as HAMMER2 volumes
+		 */
+		if (fstat(fd, &st) < 0)
+			err(1, "Unable to stat fd %d", fd);
+		if (!S_ISREG(st.st_mode))
+			errx(1, "Unsupported file type for fd %d", fd);
+		size = st.st_size;
+	} else {
+		int sector_size;
+		if (ioctl(fd, BLKSSZGET, &sector_size) < 0) {
+			errx(1, "Failed to get media sector size");
+			/* not reached */
+		}
+		if (sector_size > HAMMER2_PBUFSIZE ||
+		    HAMMER2_PBUFSIZE % sector_size) {
+			errx(1, "A media sector size of %d is not supported",
+			     sector_size);
+		}
+		size <<= 9;
+	}
+	return(size);
 }
 
 /*
@@ -303,4 +357,53 @@ dirhash(const unsigned char *name, size_t len)
 	key |= 0x8000U;
 
 	return (key);
+}
+
+char **
+get_hammer2_mounts(int *acp)
+{
+#if 0
+	struct statfs *fs;
+	char **av;
+	int n;
+	int w;
+	int i;
+
+	/*
+	 * Get a stable list of mount points
+	 */
+again:
+	n = getfsstat(NULL, 0, MNT_NOWAIT);
+	av = calloc(n, sizeof(char *));
+	fs = calloc(n, sizeof(struct statfs));
+	if (getfsstat(fs, sizeof(*fs) * n, MNT_NOWAIT) != n) {
+		free(av);
+		free(fs);
+		goto again;
+	}
+
+	/*
+	 * Pull out hammer2 filesystems only
+	 */
+	for (i = w = 0; i < n; ++i) {
+		if (strcmp(fs[i].f_fstypename, "hammer2") != 0)
+			continue;
+		av[w++] = strdup(fs[i].f_mntonname);
+	}
+	*acp = w;
+	free(fs);
+
+	return av;
+#endif
+	return NULL;
+}
+
+void
+put_hammer2_mounts(int ac, char **av)
+{
+#if 0
+	while (--ac >= 0)
+		free(av[ac]);
+	free(av);
+#endif
 }

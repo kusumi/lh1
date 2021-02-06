@@ -1,6 +1,6 @@
 PROG=	hammer2
 
-SRCS=	main.c subs.c cmd_remote.c cmd_snapshot.c cmd_pfs.c cmd_service.c cmd_leaf.c cmd_debug.c cmd_rsa.c cmd_stat.c cmd_setcomp.c cmd_setcheck.c cmd_bulkfree.c cmd_cleanup.c cmd_info.c cmd_destroy.c cmd_emergency.c print_inode.c uuid.c
+SRCS=	main.c ondisk.c subs.c cmd_remote.c cmd_snapshot.c cmd_pfs.c cmd_service.c cmd_leaf.c cmd_debug.c cmd_rsa.c cmd_stat.c cmd_setcomp.c cmd_setcheck.c cmd_bulkfree.c cmd_cleanup.c cmd_info.c cmd_destroy.c cmd_emergency.c cmd_growfs.c cmd_volume.c print_inode.c uuid.c
 
 OBJS := $(SRCS:.c=.o)
 
@@ -12,7 +12,7 @@ CFLAGS+= -DXXH_NAMESPACE=h2_
 
 all: $(PROG)
 $(PROG): $(OBJS) ../../lib/libc/gen ../../lib/libc/string ../../lib/libutil ../../lib/libdmsg ../../sys/libkern ../../sys/vfs/hammer2/xxhash
-	$(CC) $(CFLAGS) -o $@ $(OBJS) ../../lib/libc/gen/sysctlbyname.o ../../lib/libc/gen/setproctitle.c ../../lib/libc/string/strlcpy.o ../../lib/libutil/trimdomain.o ../../lib/libutil/realhostname.o ../../lib/libdmsg/crypto.o ../../lib/libdmsg/debug.o ../../sys/libkern/icrc32.o ../../lib/libdmsg/msg.o ../../lib/libdmsg/msg_lnk.o ../../lib/libdmsg/service.o ../../lib/libdmsg/subs.o ../../lib/libdmsg/uuid.o ../../sys/vfs/hammer2/xxhash/xxhash.o -lm -luuid -lpthread -lcrypto
+	$(CC) $(CFLAGS) -o $@ $(OBJS) ../../lib/libc/gen/getdevpath.o ../../lib/libc/gen/sysctlbyname.o ../../lib/libc/gen/setproctitle.c ../../lib/libc/string/strlcpy.o ../../lib/libutil/trimdomain.o ../../lib/libutil/realhostname.o ../../lib/libdmsg/crypto.o ../../lib/libdmsg/debug.o ../../sys/libkern/icrc32.o ../../lib/libdmsg/msg.o ../../lib/libdmsg/msg_lnk.o ../../lib/libdmsg/service.o ../../lib/libdmsg/subs.o ../../lib/libdmsg/uuid.o ../../sys/vfs/hammer2/xxhash/xxhash.o -lm -luuid -lpthread -lcrypto
 .c.o:
 	$(CC) $(CFLAGS) -c $<
 clean:

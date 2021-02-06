@@ -360,7 +360,7 @@ dmsg_crypto_negotiate(dmsg_iocom_t *iocom)
 	char buf1[sizeof(handtx)];
 	char buf2[sizeof(handtx)];
 	char *ptr;
-	char *path;
+	char *path = NULL;
 	struct stat st;
 	FILE *fp;
 	RSA *keys[3] = { NULL, NULL, NULL };
@@ -672,7 +672,7 @@ done:
 		RSA_free(keys[0]);
 	if (keys[1])
 		RSA_free(keys[1]);
-	if (keys[1])
+	if (keys[2])
 		RSA_free(keys[2]);
 }
 

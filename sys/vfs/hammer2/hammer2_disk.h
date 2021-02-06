@@ -88,15 +88,6 @@
 #define HAMMER2_RADIX_KEY	64	/* number of bits in key */
 
 /*
- * MINALLOCSIZE		- The minimum allocation size.  This can be smaller
- *		  	  or larger than the minimum physical IO size.
- *
- *			  NOTE: Should not be larger than 1K since inodes
- *				are 1K.
- *
- * MINIOSIZE		- The minimum IO size.  This must be less than
- *			  or equal to HAMMER2_LBUFSIZE.
- *
  * HAMMER2_LBUFSIZE	- Nominal buffer size for I/O rollups.
  *
  * HAMMER2_PBUFSIZE	- Topological block size used by files for all
@@ -114,12 +105,6 @@
 #define HAMMER2_LBUFRADIX	14	/* logical buf (1<<14) bytes */
 #define HAMMER2_LBUFSIZE	16384
 
-/*
- * Generally speaking we want to use 16K and 64K I/Os
- */
-#define HAMMER2_MINIORADIX	HAMMER2_LBUFRADIX
-#define HAMMER2_MINIOSIZE	HAMMER2_LBUFSIZE
-
 #define HAMMER2_IND_BYTES_MIN	4096
 #define HAMMER2_IND_BYTES_NOM	HAMMER2_LBUFSIZE
 #define HAMMER2_IND_BYTES_MAX	HAMMER2_PBUFSIZE
@@ -133,17 +118,12 @@
 
 /*
  * In HAMMER2, arrays of blockrefs are fully set-associative, meaning that
- * any element can occur at any index and holes can be anywhere.  As a
- * future optimization we will be able to flag that such arrays are sorted
- * and thus optimize lookups, but for now we don't.
+ * any element can occur at any index and holes can be anywhere.
  *
  * Inodes embed either 512 bytes of direct data or an array of 4 blockrefs,
  * resulting in highly efficient storage for files <= 512 bytes and for files
  * <= 512KB.  Up to 4 directory entries can be referenced from a directory
  * without requiring an indirect block.
- *
- * Indirect blocks are typically either 4KB (64 blockrefs / ~4MB represented),
- * or 64KB (1024 blockrefs / ~64MB represented).
  */
 #define HAMMER2_SET_RADIX		2	/* radix 2 = 4 entries */
 #define HAMMER2_SET_COUNT		(1 << HAMMER2_SET_RADIX)
@@ -163,10 +143,9 @@
 #define HAMMER2_UUID_STRING	"5cbb9ad1-862d-11dc-a94d-01301bb8a9f5"
 
 /*
- * A 4MB segment is reserved at the beginning of each 2GB zone.  This segment
+ * A 4MB segment is reserved at the beginning of each 1GB.  This segment
  * contains the volume header (or backup volume header), the free block
- * table, and possibly other information in the future.  A 4MB segment for
- * freemap is reserved at the beginning of every 1GB.
+ * table, and possibly other information in the future.
  *
  * 4MB = 64 x 64K blocks.  Each 4MB segment is broken down as follows:
  *
@@ -278,7 +257,7 @@
 #define HAMMER2_VOLUME_ALIGN		(8 * 1024 * 1024)
 #define HAMMER2_VOLUME_ALIGN64		((hammer2_off_t)HAMMER2_VOLUME_ALIGN)
 #define HAMMER2_VOLUME_ALIGNMASK	(HAMMER2_VOLUME_ALIGN - 1)
-#define HAMMER2_VOLUME_ALIGNMASK64     ((hammer2_off_t)HAMMER2_VOLUME_ALIGNMASK)
+#define HAMMER2_VOLUME_ALIGNMASK64	((hammer2_off_t)HAMMER2_VOLUME_ALIGNMASK)
 
 #define HAMMER2_NEWFS_ALIGN		(HAMMER2_VOLUME_ALIGN)
 #define HAMMER2_NEWFS_ALIGN64		((hammer2_off_t)HAMMER2_VOLUME_ALIGN)
@@ -355,7 +334,7 @@
 #define HAMMER2_FREEMAP_LEVEL3_RADIX	46	/* 64TB */
 #define HAMMER2_FREEMAP_LEVEL2_RADIX	38	/* 256GB */
 #define HAMMER2_FREEMAP_LEVEL1_RADIX	30	/* 1GB */
-#define HAMMER2_FREEMAP_LEVEL0_RADIX	22	/* 4MB (128by in l-1 leaf) */
+#define HAMMER2_FREEMAP_LEVEL0_RADIX	22	/* 4MB (x 256 in l-1 leaf) */
 
 #define HAMMER2_FREEMAP_LEVELN_PSIZE	32768	/* physical bytes */
 
@@ -388,7 +367,7 @@
  *     now we retain compatibility and make FMZONEBASE every 1GB
  */
 #define H2FMZONEBASE(key)	((key) & ~HAMMER2_FREEMAP_LEVEL1_MASK)
-#define H2FMBASE(key, radix)	((key) & ~(((hammer2_off_t)1 << (radix)) - 1))
+#define H2FMBASE(key, radix)	rounddown2(key, (hammer2_off_t)1 << (radix))
 
 /*
  * 16KB bitmap granularity (x2 bits per entry).
@@ -431,9 +410,9 @@ typedef uint64_t			hammer2_bitmap_t;
 #define HAMMER2_BOOT_NOM_BYTES		(64*1024*1024)
 #define HAMMER2_BOOT_MAX_BYTES		(256*1024*1024)
 
-#define HAMMER2_REDO_MIN_BYTES		HAMMER2_VOLUME_ALIGN
-#define HAMMER2_REDO_NOM_BYTES		(256*1024*1024)
-#define HAMMER2_REDO_MAX_BYTES		(1024*1024*1024)
+#define HAMMER2_AUX_MIN_BYTES		HAMMER2_VOLUME_ALIGN
+#define HAMMER2_AUX_NOM_BYTES		(256*1024*1024)
+#define HAMMER2_AUX_MAX_BYTES		(1024*1024*1024)
 
 /*
  * Most HAMMER2 types are implemented as unsigned 64-bit integers.
@@ -478,12 +457,10 @@ typedef struct hammer2_uuid {
  *	    case which means no data associated with the blockref, and
  *	    not the '1 byte' it would otherwise calculate to.
  */
-#define HAMMER2_OFF_BAD		((hammer2_off_t)-1)
 #define HAMMER2_OFF_MASK	0xFFFFFFFFFFFFFFC0ULL
 #define HAMMER2_OFF_MASK_LO	(HAMMER2_OFF_MASK & HAMMER2_PBUFMASK64)
 #define HAMMER2_OFF_MASK_HI	(~HAMMER2_PBUFMASK64)
 #define HAMMER2_OFF_MASK_RADIX	0x000000000000003FULL
-#define HAMMER2_MAX_COPIES	6
 
 /*
  * HAMMER2 directory support and pre-defined keys
@@ -738,6 +715,7 @@ typedef struct hammer2_blockref hammer2_blockref_t;
 #define HAMMER2_BREF_TYPE_DIRENT	4
 #define HAMMER2_BREF_TYPE_FREEMAP_NODE	5
 #define HAMMER2_BREF_TYPE_FREEMAP_LEAF	6
+#define HAMMER2_BREF_TYPE_INVALID	7
 #define HAMMER2_BREF_TYPE_FREEMAP	254	/* pseudo-type */
 #define HAMMER2_BREF_TYPE_VOLUME	255	/* pseudo-type */
 
@@ -795,17 +773,12 @@ typedef struct hammer2_blockref hammer2_blockref_t;
 
 /*
  * HAMMER2 block references are collected into sets of 4 blockrefs.  These
- * sets are fully associative, meaning the elements making up a set are
- * not sorted in any way and may contain duplicate entries, holes, or
- * entries which shortcut multiple levels of indirection.  Sets are used
- * in various ways:
+ * sets are fully associative, meaning the elements making up a set may
+ * contain duplicate entries, holes, but valid elements are always sorted.
  *
- * (1) When redundancy is desired a set may contain several duplicate
- *     entries pointing to different copies of the same data.  Up to 4 copies
- *     are supported.
- *
- * (2) The blockrefs in a set can shortcut multiple levels of indirections
- *     within the bounds imposed by the parent of set.
+ * When redundancy is desired a set may contain several duplicate
+ * entries pointing to different copies of the same data.  Up to 4 copies
+ * are supported. Not implemented.
  *
  * When a set fills up another level of indirection is inserted, moving
  * some or all of the set's contents into indirect blocks placed under the
@@ -813,9 +786,6 @@ typedef struct hammer2_blockref hammer2_blockref_t;
  * until the set actually becomes full (that is, the entries in the set can
  * shortcut the indirect blocks when the set is not full).  Depending on how
  * things are filled multiple indirect blocks will eventually be created.
- *
- * Indirect blocks are typically 4KB (64 entres) or 64KB (1024 entries) and
- * are also treated as fully set-associative.
  */
 struct hammer2_blockset {
 	hammer2_blockref_t	blockref[HAMMER2_SET_COUNT];
@@ -879,6 +849,32 @@ typedef struct hammer2_blockset hammer2_blockset_t;
  *	     01 (reserved)
  *	     10 Possibly free
  *           11 Allocated
+ *
+ * ==========
+ * level6 freemap
+ * blockref[0]       : 4EB
+ * blockref[1]       : 4EB
+ * blockref[2]       : 4EB
+ * blockref[3]       : 4EB
+ * -----------------------------------------------------------------------
+ * 4 x 128B = 512B   : 4 x 4EB = 16EB
+ *
+ * level2-5 FREEMAP_NODE
+ * blockref[0]       : 1GB,256GB,64TB,16PB
+ * blockref[1]       : 1GB,256GB,64TB,16PB
+ * ...
+ * blockref[255]     : 1GB,256GB,64TB,16PB
+ * -----------------------------------------------------------------------
+ * 256 x 128B = 32KB : 256 x 1GB,256GB,64TB,16PB = 256GB,64TB,16PB,4EB
+ *
+ * level1 FREEMAP_LEAF
+ * bmap_data[0]      : 8 x 8B = 512bits = 256 x 2bits -> 256 x 16KB = 4MB
+ * bmap_data[1]      : 8 x 8B = 512bits = 256 x 2bits -> 256 x 16KB = 4MB
+ * ...
+ * bmap_data[255]    : 8 x 8B = 512bits = 256 x 2bits -> 256 x 16KB = 4MB
+ * -----------------------------------------------------------------------
+ * 256 x 128B = 32KB : 256 x 4MB = 1GB
+ * ==========
  */
 struct hammer2_bmap_data {
 	int32_t linear;		/* 00 linear sub-granular allocation offset */
@@ -899,12 +895,7 @@ struct hammer2_bmap_data {
 typedef struct hammer2_bmap_data hammer2_bmap_data_t;
 
 /*
- * XXX "Inodes ARE directory entries" is no longer the case.  Hardlinks are
- * dirents which refer to the same inode#, which is how filesystems usually
- * implement hardlink.  The following comments need to be updated.
- *
- * In HAMMER2 inodes ARE directory entries, with a special exception for
- * hardlinks.  The inode number is stored in the inode rather than being
+ * The inode number is stored in the inode rather than being
  * based on the location of the inode (since the location moves every time
  * the inode or anything underneath the inode is modified).
  *
@@ -928,18 +919,6 @@ typedef struct hammer2_bmap_data hammer2_bmap_data_t;
  *
  * The compression mode can be changed at any time in the inode and is
  * recorded on a blockref-by-blockref basis.
- *
- * Hardlinks are supported via the inode map.  Essentially the way a hardlink
- * works is that all individual directory entries representing the same file
- * are special cased and specify the same inode number.  The actual file
- * is placed in the nearest parent directory that is parent to all instances
- * of the hardlink.  If all hardlinks to a file are in the same directory
- * the actual file will also be placed in that directory.  This file uses
- * the inode number as the directory entry key and is invisible to normal
- * directory scans.  Real directory entry keys are differentiated from the
- * inode number key via bit 63.  Access to the hardlink silently looks up
- * the real file and forwards all operations to that file.  Removal of the
- * last hardlink also removes the real file.
  */
 #define HAMMER2_INODE_BYTES		1024	/* (asserted by code) */
 #define HAMMER2_INODE_MAXNAME		256	/* maximum name in bytes */
@@ -1128,37 +1107,8 @@ typedef struct hammer2_inode_data hammer2_inode_data_t;
 #define HAMMER2_PFSMODE_RW		0x02
 
 /*
- *				Allocation Table
- *
- */
-
-
-/*
- * Flags (8 bits) - blockref, for freemap only
- *
- * Note that the minimum chunk size is 1KB so we could theoretically have
- * 10 bits here, but we might have some future extension that allows a
- * chunk size down to 256 bytes and if so we will need bits 8 and 9.
- */
-#define HAMMER2_AVF_SELMASK		0x03	/* select group */
-#define HAMMER2_AVF_ALL_ALLOC		0x04	/* indicate all allocated */
-#define HAMMER2_AVF_ALL_FREE		0x08	/* indicate all free */
-#define HAMMER2_AVF_RESERVED10		0x10
-#define HAMMER2_AVF_RESERVED20		0x20
-#define HAMMER2_AVF_RESERVED40		0x40
-#define HAMMER2_AVF_RESERVED80		0x80
-#define HAMMER2_AVF_AVMASK32		((uint32_t)0xFFFFFF00LU)
-#define HAMMER2_AVF_AVMASK64		((uint64_t)0xFFFFFFFFFFFFFF00LLU)
-
-#define HAMMER2_AV_SELECT_A		0x00
-#define HAMMER2_AV_SELECT_B		0x01
-#define HAMMER2_AV_SELECT_C		0x02
-#define HAMMER2_AV_SELECT_D		0x03
-
-/*
- * The volume header eats a 64K block.  There is currently an issue where
- * we want to try to fit all nominal filesystem updates in a 512-byte section
- * but it may be a lost cause due to the need for a blockset.
+ * The volume header eats a 64K block at the beginning of each 2GB zone
+ * up to four copies.
  *
  * All information is stored in host byte order.  The volume header's magic
  * number may be checked to determine the byte order.  If you wish to mount
@@ -1185,7 +1135,7 @@ typedef struct hammer2_inode_data hammer2_inode_data_t;
  *	 allow HAMMER2 to pick up the others when it checks the copyinfo[]
  *	 array on mount.
  *
- * NOTE: root_blockref points to the super-root directory, not the root
+ * NOTE: sroot_blockset points to the super-root directory, not the root
  *	 directory.  The root directory will be a subdirectory under the
  *	 super-root.
  *
@@ -1193,16 +1143,19 @@ typedef struct hammer2_inode_data hammer2_inode_data_t;
  *	 snapshots (readonly or writable).  It is possible to do a
  *	 null-mount of the super-root using special path constructions
  *	 relative to your mounted root.
- *
- * NOTE: HAMMER2 allows any subdirectory tree to be managed as if it were
- *	 a PFS, including mirroring and storage quota operations, and this is
- *	 prefered over creating discrete PFSs in the super-root.  Instead
- *	 the super-root is most typically used to create writable snapshots,
- *	 alternative roots, and so forth.  The super-root is also used by
- *	 the automatic snapshotting mechanism.
  */
 #define HAMMER2_VOLUME_ID_HBO	0x48414d3205172011LLU
 #define HAMMER2_VOLUME_ID_ABO	0x11201705324d4148LLU
+
+/*
+ * If volume version is HAMMER2_VOL_VERSION_MULTI_VOLUMES or above, max
+ * HAMMER2_MAX_VOLUMES volumes are supported. There must be 1 (and only 1)
+ * volume with volume id HAMMER2_ROOT_VOLUME.
+ * Otherwise filesystem only supports 1 volume, and that volume must have
+ * volume id HAMMER2_ROOT_VOLUME(0) which was a reserved field then.
+ */
+#define HAMMER2_MAX_VOLUMES	64
+#define HAMMER2_ROOT_VOLUME	0
 
 struct hammer2_volume_data {
 	/*
@@ -1220,15 +1173,17 @@ struct hammer2_volume_data {
 	uint8_t		copyid;			/* 0038 copyid of phys vol */
 	uint8_t		freemap_version;	/* 0039 freemap algorithm */
 	uint8_t		peer_type;		/* 003A HAMMER2_PEER_xxx */
-	uint8_t		reserved003B;		/* 003B */
-	uint32_t	reserved003C;		/* 003C */
+	uint8_t		volu_id;		/* 003B */
+	uint8_t		nvolumes;		/* 003C */
+	uint8_t		reserved003D;		/* 003D */
+	uint16_t	reserved003E;		/* 003E */
 
 	hammer2_uuid_t	fsid;			/* 0040 */
 	hammer2_uuid_t	fstype;			/* 0050 */
 
 	/*
 	 * allocator_size is precalculated at newfs time and does not include
-	 * reserved blocks, boot, or redo areas.
+	 * reserved blocks, boot, or aux areas.
 	 *
 	 * Initial non-reserved-area allocations do not use the freemap
 	 * but instead adjust alloc_iterator.  Dynamic allocations take
@@ -1252,7 +1207,9 @@ struct hammer2_volume_data {
 	hammer2_tid_t	reserved0088;		/* 0088 */
 	hammer2_tid_t	freemap_tid;		/* 0090 committed tid (fmap) */
 	hammer2_tid_t	bulkfree_tid;		/* 0098 bulkfree incremental */
-	hammer2_tid_t	reserved00A0[5];	/* 00A0-00C7 */
+	hammer2_tid_t	reserved00A0[4];	/* 00A0-00BF */
+
+	hammer2_off_t	total_size;		/* 00C0 Total volume size, bytes */
 
 	/*
 	 * Copyids are allocated dynamically from the copyexists bitmap.
@@ -1282,19 +1239,25 @@ struct hammer2_volume_data {
 	/*
 	 * sector #1 - 512 bytes
 	 *
-	 * The entire sector is used by a blockset.
+	 * The entire sector is used by a blockset, but currently only first
+	 * blockref is used.
 	 */
 	hammer2_blockset_t sroot_blockset;	/* 0200-03FF Superroot dir */
 
 	/*
-	 * sector #2-7
+	 * sector #2-6
 	 */
 	char	sector2[512];			/* 0400-05FF reserved */
 	char	sector3[512];			/* 0600-07FF reserved */
 	hammer2_blockset_t freemap_blockset;	/* 0800-09FF freemap  */
 	char	sector5[512];			/* 0A00-0BFF reserved */
 	char	sector6[512];			/* 0C00-0DFF reserved */
-	char	sector7[512];			/* 0E00-0FFF reserved */
+
+	/*
+	 * sector #7 - 512 bytes
+	 * Maximum 64 volume offsets within logical offset.
+	 */
+	hammer2_off_t volu_loff[HAMMER2_MAX_VOLUMES];
 
 	/*
 	 * sector #8-71	- 32768 bytes
@@ -1303,10 +1266,6 @@ struct hammer2_volume_data {
 	 * specify local and remote copies operating as masters or slaves.
 	 * copyid's 0 and 255 are reserved (0 indicates an empty slot and 255
 	 * indicates the local media).
-	 *
-	 * Each inode contains a set of up to 8 copyids, either inherited
-	 * from its parent or explicitly specified in the inode, which
-	 * indexes into this array.
 	 */
 						/* 1000-8FFF copyinfo config */
 	hammer2_volconf_t copyinfo[HAMMER2_COPYID_COUNT];
@@ -1350,9 +1309,11 @@ typedef struct hammer2_volume_data hammer2_volume_data_t;
 #define HAMMER2_VOLUME_ICRC1_SIZE	(512)
 #define HAMMER2_VOLUME_ICRCVH_SIZE	(65536 - 4)
 
+#define HAMMER2_VOL_VERSION_MULTI_VOLUMES	2
+
 #define HAMMER2_VOL_VERSION_MIN		1
-#define HAMMER2_VOL_VERSION_DEFAULT	1
-#define HAMMER2_VOL_VERSION_WIP 	2
+#define HAMMER2_VOL_VERSION_DEFAULT	HAMMER2_VOL_VERSION_MULTI_VOLUMES
+#define HAMMER2_VOL_VERSION_WIP		(HAMMER2_VOL_VERSION_MULTI_VOLUMES + 1)
 
 #define HAMMER2_NUM_VOLHDRS		4
 

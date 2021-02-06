@@ -789,6 +789,9 @@ int kdmsg_state_cmp(kdmsg_state_t *state1, kdmsg_state_t *state2);
 RB_HEAD(kdmsg_state_tree, kdmsg_state);
 RB_PROTOTYPE(kdmsg_state_tree, kdmsg_state, rbnode, kdmsg_state_cmp);
 
+struct file;			/* forward decl */
+struct malloc_type;
+
 /*
  * Structure embedded in e.g. mount, master control structure for
  * DMSG stream handling.
@@ -830,6 +833,9 @@ typedef struct kdmsg_iocom	kdmsg_iocom_t;
 
 uint32_t kdmsg_icrc32(const void *buf, size_t size);
 uint32_t kdmsg_icrc32c(const void *buf, size_t size, uint32_t crc);
+#endif	/* _KERNEL || _KERNEL_STRUCTURES */
+
+#ifdef _KERNEL
 
 /*
  * kern_dmsg.c
@@ -856,6 +862,6 @@ void kdmsg_state_result(kdmsg_state_t *state, uint32_t error);
 void kdmsg_detach_aux_data(kdmsg_msg_t *msg, kdmsg_data_t *data);
 void kdmsg_free_aux_data(kdmsg_data_t *data);
 
-#endif	/* _KERNEL || _KERNEL_STRUCTURES */
+#endif	/* _KERNEL */
 
 #endif	/* !_SYS_DMSG_H_ */

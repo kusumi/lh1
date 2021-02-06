@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011-2012 The DragonFly Project.  All rights reserved.
+ * Copyright (c) 2020 The DragonFly Project.  All rights reserved.
  *
  * This code is derived from software contributed to The DragonFly Project
  * by Matthew Dillon <dillon@dragonflybsd.org>
@@ -32,47 +32,44 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/types.h>
-#include <sys/stat.h> // before <sys/dfly.h>, <sys/tree.h>, <sys/dmsg.h>
-#include <netdb.h> // before <sys/dfly.h>, <sys/tree.h>, <sys/dmsg.h>
-#include <sys/queue.h>
-#include <sys/tree.h>
-#include <sys/socket.h>
-#include <sys/dmsg.h>
-#include <sys/poll.h>
-#include <sys/uio.h>
-#include <sys/dfly.h>
+#include "hammer2.h"
 
-#include <netinet/in.h>
-#include <netinet/ip.h>
-#include <netinet/tcp.h>
-#include <arpa/inet.h>
+int
+cmd_growfs(const char *sel_path, int ac, const char **av)
+{
+	int fd;
+	int i;
+	int ecode = 0;
 
-#include <assert.h>
-#include <fcntl.h>
-#include <pthread.h>
-#include <libutil.h>
+	/*
+	 * Use sel_path if no arguments, else used passed arguments
+	 */
+	for (i = 0; i <= ac; ++i) {
+		struct hammer2_ioc_growfs growfs;
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
-#include <uuid/uuid.h>
-#include <time.h>
+		if (i < ac)
+			sel_path = av[i];
+		else if (i == ac && ac != 0)
+			continue;
 
-#include <openssl/rsa.h>	/* public/private key functions */
-#include <openssl/pem.h>	/* public/private key file load */
-#include <openssl/err.h>
-#include <openssl/evp.h>	/* aes_256_cbc functions */
-
-#include <machine/atomic.h>
-#include <byteswap.h>
-
-#include "dmsg.h"
-
-/*
- * Define prototypes here to prevent conflict with hammer2.h.
- * The real problem is that there is no userspace header for these two.
- */
-uint32_t iscsi_crc32(const void *buf, size_t size);
-uint32_t iscsi_crc32_ext(const void *buf, size_t size, uint32_t ocrc);
+		fd = hammer2_ioctl_handle(sel_path);
+		if (fd < 0) {
+			ecode = 1;
+			continue;
+		}
+		bzero(&growfs, sizeof(growfs));
+		if (ioctl(fd, HAMMER2IOC_GROWFS, &growfs) < 0) {
+			fprintf(stderr, "grow %s failed: %s\n",
+			       sel_path, strerror(errno));
+			ecode = 1;
+		} else if (growfs.modified) {
+			printf("%s grown to %ld\n",
+			       sel_path, (intmax_t)growfs.size);
+		} else {
+			printf("%s no size change - %ld\n",
+			       sel_path, (intmax_t)growfs.size);
+		}
+		close(fd);
+	}
+	return ecode;
+}

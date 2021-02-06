@@ -330,7 +330,7 @@ struct hammer_ioc_version {
 
 struct hammer_ioc_volume {
 	struct hammer_ioc_head head;
-	char			device_name[MAXPATHLEN];
+	char			device_name[1024]; /* MAXPATHLEN */
 	int32_t			vol_no;
 	uint8_t			flag;
 	uint8_t			reserved[3];

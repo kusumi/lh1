@@ -33,15 +33,14 @@
  */
 #include "hammer2.h"
 
-static void h2disk_check(const char *devpath,
-		    void (*callback1)(const char *, hammer2_blockref_t *, int));
+typedef void (*cmd_callback)(const void *, hammer2_blockref_t *, int);
+
+static void h2disk_check(const char *devpath, cmd_callback callback1);
 static void h2pfs_check(int fd, hammer2_blockref_t *bref,
-		    void (*callback2)(const char *, hammer2_blockref_t *, int));
+		    cmd_callback callback2);
 
-static void info_callback1(const char *, hammer2_blockref_t *, int);
-static void info_callback2(const char *, hammer2_blockref_t *, int);
-
-typedef void (*cmd_callback)(const char *, hammer2_blockref_t *, int);
+static void info_callback1(const void *, hammer2_blockref_t *, int);
+static void info_callback2(const void *, hammer2_blockref_t *, int);
 
 static
 void
@@ -144,24 +143,74 @@ cmd_info(int ac, const char **av)
 	return 0;
 }
 
+struct pfs_entry {
+	TAILQ_ENTRY(pfs_entry) entry;
+	char name[NAME_MAX+1];
+	char s[NAME_MAX+1];
+};
+
+static TAILQ_HEAD(, pfs_entry) head;
+
 static
 void
-info_callback1(const char *path, hammer2_blockref_t *bref, int fd)
+info_callback1(const void *path, hammer2_blockref_t *bref, int fd)
 {
-	printf("%s:\n", path);
+	struct pfs_entry *p;
+
+	printf("%s:\n", (const char*)path);
+
+	TAILQ_INIT(&head);
 	h2pfs_check(fd, bref, info_callback2);
+
+	printf("    Type        "
+	       "ClusterId (pfs_clid)                 "
+	       "Label\n");
+	while ((p = TAILQ_FIRST(&head)) != NULL) {
+		printf("    %s %s\n", p->s, p->name);
+		TAILQ_REMOVE(&head, p, entry);
+		free(p);
+	}
 }
 
 static
 void
-info_callback2(const char *pfsname,
+info_callback2(const void *data,
 	       hammer2_blockref_t *bref __unused, int fd __unused)
 {
-	printf("    %s\n", pfsname);
+	const hammer2_inode_data_t *ipdata = data;
+	const hammer2_inode_meta_t *meta = &ipdata->meta;
+	char *pfs_id_str = NULL;
+	const char *type_str;
+	struct pfs_entry *p, *e;
+
+	hammer2_uuid_to_str(&meta->pfs_clid, &pfs_id_str);
+	if (meta->pfs_type == HAMMER2_PFSTYPE_MASTER) {
+		if (meta->pfs_subtype == HAMMER2_PFSSUBTYPE_NONE)
+			type_str = "MASTER";
+		else
+			type_str = hammer2_pfssubtype_to_str(meta->pfs_subtype);
+	} else {
+		type_str = hammer2_pfstype_to_str(meta->pfs_type);
+	}
+	e = calloc(1, sizeof(*e));
+	snprintf(e->name, sizeof(e->name), "%s", ipdata->filename);
+	snprintf(e->s, sizeof(e->s), "%-11s %s", type_str, pfs_id_str);
+	free(pfs_id_str);
+
+	p = TAILQ_FIRST(&head);
+	while (p) {
+		if (strcmp(e->name, p->name) <= 0) {
+			TAILQ_INSERT_BEFORE(p, e, entry);
+			break;
+		}
+		p = TAILQ_NEXT(p, entry);
+	}
+	if (!p)
+		TAILQ_INSERT_TAIL(&head, e, entry);
 }
 
-static void mount_callback1(const char *, hammer2_blockref_t *, int);
-static void mount_callback2(const char *, hammer2_blockref_t *, int);
+static void mount_callback1(const void *, hammer2_blockref_t *, int);
+static void mount_callback2(const void *, hammer2_blockref_t *, int);
 static void cmd_mountall_alarm(int signo);
 
 static volatile sig_atomic_t DidAlarm;
@@ -207,7 +256,7 @@ static const char *mount_comp;
 
 static
 void
-mount_callback1(const char *devpath, hammer2_blockref_t *bref, int fd)
+mount_callback1(const void *devpath, hammer2_blockref_t *bref, int fd)
 {
 	mount_path = devpath;
 	mount_comp = strrchr(devpath, '/');
@@ -219,14 +268,15 @@ mount_callback1(const char *devpath, hammer2_blockref_t *bref, int fd)
 
 static
 void
-mount_callback2(const char *pfsname,
+mount_callback2(const void *data,
 		hammer2_blockref_t *bref __unused, int fd)
 {
+	const hammer2_inode_data_t *ipdata = data;
 	char *tmp_path;
 	char *label;
 	int tfd;
 
-	if (strcmp(pfsname, "LOCAL") == 0) {
+	if (strcmp((char*)ipdata->filename, "LOCAL") == 0) {
 		if ((tfd = open("/dev/null", O_RDONLY)) >= 0) {
 			dup2(tfd, fd);
 			close(tfd);
@@ -251,17 +301,14 @@ mount_callback2(const char *pfsname,
 	}
 }
 
-/*
- * Support
- */
 static
 void
-h2disk_check(const char *devpath,
-	     void (*callback1)(const char *, hammer2_blockref_t *, int))
+h2disk_check(const char *devpath, cmd_callback callback1)
 {
 	hammer2_blockref_t broot;
 	hammer2_blockref_t best;
 	hammer2_media_data_t media;
+	hammer2_volume_data_t *voldata;
 	//struct partinfo partinfo;
 	int fd;
 	int i;
@@ -308,14 +355,19 @@ h2disk_check(const char *devpath,
 		broot.data_off = (i * HAMMER2_ZONE_BYTES64) |
 				 HAMMER2_PBUFRADIX;
 		lseek(fd, broot.data_off & ~HAMMER2_OFF_MASK_RADIX, SEEK_SET);
-		if (read(fd, &media, HAMMER2_PBUFSIZE) ==
-		    (ssize_t)HAMMER2_PBUFSIZE &&
-		    media.voldata.magic == HAMMER2_VOLUME_ID_HBO) {
-			broot.mirror_tid = media.voldata.mirror_tid;
-			if (best_i < 0 || best.mirror_tid < broot.mirror_tid) {
-				best_i = i;
-				best = broot;
-			}
+		if (read(fd, &media, HAMMER2_PBUFSIZE) !=
+		    (ssize_t)HAMMER2_PBUFSIZE)
+			continue;
+		voldata = &media.voldata;
+		if (voldata->magic != HAMMER2_VOLUME_ID_HBO)
+			continue;
+		/* XXX multiple volumes currently unsupported */
+		if (voldata->nvolumes > 1)
+			break;
+		broot.mirror_tid = voldata->mirror_tid;
+		if (best_i < 0 || best.mirror_tid < broot.mirror_tid) {
+			best_i = i;
+			best = broot;
 		}
 	}
 	if (best_i >= 0)
@@ -326,8 +378,7 @@ h2disk_check(const char *devpath,
 
 static
 void
-h2pfs_check(int fd, hammer2_blockref_t *bref,
-	    void (*callback2)(const char *, hammer2_blockref_t *, int))
+h2pfs_check(int fd, hammer2_blockref_t *bref, cmd_callback callback2)
 {
 	hammer2_media_data_t media;
 	hammer2_blockref_t *bscan;
@@ -341,19 +392,21 @@ h2pfs_check(int fd, hammer2_blockref_t *bref,
 	hammer2_off_t io_off;
 	hammer2_off_t io_base;
 
-	bytes = (size_t)1 << (bref->data_off & HAMMER2_OFF_MASK_RADIX);
+	bytes = (bref->data_off & HAMMER2_OFF_MASK_RADIX);
+	if (bytes)
+		bytes = (size_t)1 << bytes;
 
 	io_off = bref->data_off & ~HAMMER2_OFF_MASK_RADIX;
-	io_base = io_off & ~(hammer2_off_t)(HAMMER2_MINIOSIZE - 1);
+	io_base = io_off & ~(hammer2_off_t)(HAMMER2_LBUFSIZE - 1);
 	io_bytes = bytes;
 	boff = io_off - io_base;
 
-	io_bytes = HAMMER2_MINIOSIZE;
+	io_bytes = HAMMER2_LBUFSIZE;
 	while (io_bytes + boff < bytes)
 		io_bytes <<= 1;
 
 	if (io_bytes > sizeof(media)) {
-		printf("(bad block size %zd)\n", bytes);
+		printf("(bad block size %zu)\n", bytes);
 		return;
 	}
 	if (bref->type != HAMMER2_BREF_TYPE_DATA) {
@@ -414,8 +467,6 @@ h2pfs_check(int fd, hammer2_blockref_t *bref,
 	}
 
 	switch(bref->type) {
-	case HAMMER2_BREF_TYPE_EMPTY:
-		break;
 	case HAMMER2_BREF_TYPE_INODE:
 		if (media.ipdata.meta.pfs_type == HAMMER2_PFSTYPE_SUPROOT) {
 			if ((media.ipdata.meta.op_flags &
@@ -423,9 +474,8 @@ h2pfs_check(int fd, hammer2_blockref_t *bref,
 				bscan = &media.ipdata.u.blockset.blockref[0];
 				bcount = HAMMER2_SET_COUNT;
 			}
-		} else
-		if (media.ipdata.meta.op_flags & HAMMER2_OPFLAG_PFSROOT) {
-			callback2((char*)media.ipdata.filename, bref, fd);
+		} else if (media.ipdata.meta.op_flags & HAMMER2_OPFLAG_PFSROOT) {
+			callback2(&media.ipdata, bref, fd);
 			bscan = NULL;
 			bcount = 0;
 		} else {
@@ -436,8 +486,6 @@ h2pfs_check(int fd, hammer2_blockref_t *bref,
 	case HAMMER2_BREF_TYPE_INDIRECT:
 		bscan = &media.npdata[0];
 		bcount = bytes / sizeof(hammer2_blockref_t);
-		break;
-	case HAMMER2_BREF_TYPE_DATA:
 		break;
 	case HAMMER2_BREF_TYPE_VOLUME:
 		bscan = &media.voldata.sroot_blockset.blockref[0];

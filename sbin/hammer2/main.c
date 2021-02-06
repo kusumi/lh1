@@ -38,9 +38,9 @@
 int DebugOpt;
 int VerboseOpt;
 int QuietOpt;
-int NormalExit = 1;	/* if set to 0 main() has to pthread_exit() */
-int RecurseOpt;
 int ForceOpt;
+int RecurseOpt;
+int NormalExit = 1;	/* if set to 0 main() has to pthread_exit() */
 size_t MemOpt;
 
 static void usage(int code);
@@ -48,7 +48,7 @@ static void usage(int code);
 int
 main(int ac, char **av)
 {
-	const char *sel_path = NULL;
+	char *sel_path = NULL;
 	const char *uuid_str = NULL;
 	const char *arg;
 	char *opt;
@@ -64,7 +64,7 @@ main(int ac, char **av)
 	/*
 	 * Core options
 	 */
-	while ((ch = getopt(ac, av, "adfm:rqs:t:u:v")) != -1) {
+	while ((ch = getopt(ac, av, "adfm:rs:t:u:vq")) != -1) {
 		switch(ch) {
 		case 'a':
 			all_opt = 1;
@@ -104,7 +104,7 @@ main(int ac, char **av)
 			RecurseOpt = 1;
 			break;
 		case 's':
-			sel_path = optarg;
+			sel_path = strdup(optarg);
 			break;
 		case 't':
 			/*
@@ -224,6 +224,9 @@ main(int ac, char **av)
 	} else if (strcmp(av[0], "emergency-mode-disable") == 0) {
 		ecode = cmd_emergency_mode(sel_path, 0, ac - 1,
 					 (const char **)(void *)&av[1]);
+	} else if (strcmp(av[0], "growfs") == 0) {
+		ecode = cmd_growfs(sel_path, ac - 1,
+					 (const char **)(void *)&av[1]);
 	} else if (strcmp(av[0], "hash") == 0) {
 		ecode = cmd_hash(ac - 1, (const char **)(void *)&av[1]);
 	} else if (strcmp(av[0], "dhash") == 0) {
@@ -267,7 +270,7 @@ main(int ac, char **av)
 		 */
 		if (ac >= 2) {
 			ecode = cmd_pfs_list(ac - 1,
-					     (const char **)(void *)&av[1]);
+					     (char **)(void *)&av[1]);
 		} else {
 			ecode = cmd_pfs_list(1, &sel_path);
 		}
@@ -288,7 +291,7 @@ main(int ac, char **av)
 			fprintf(stderr, "pfs-delete: requires name\n");
 			usage(1);
 		}
-		ecode = cmd_pfs_delete(sel_path, av[1]);
+		ecode = cmd_pfs_delete(sel_path, av, ac);
 	} else if (strcmp(av[0], "snapshot") == 0 ||
 		   strcmp(av[0], "snapshot-debug") == 0) {
 		/*
@@ -433,6 +436,16 @@ main(int ac, char **av)
 			usage(1);
 		} else {
 			cmd_show(av[1], 2);
+		}
+	} else if (strcmp(av[0], "volume-list") == 0) {
+		/*
+		 * List all volumes
+		 */
+		if (ac >= 2) {
+			ecode = cmd_volume_list(ac - 1,
+					     (char **)(void *)&av[1]);
+		} else {
+			ecode = cmd_volume_list(1, &sel_path);
 		}
 	} else if (strcmp(av[0], "setcomp") == 0) {
 		if (ac < 3) {
@@ -580,6 +593,8 @@ usage(int code)
 			"Connect to debug shell\n"
 		"    debugspan <target>                "
 			"Connect to target, run CONN/SPAN\n"
+		"    growfs [<path...]                 "
+			"Grow a filesystem into resized partition\n"
 		"    rsainit [<path>]                  "
 			"Initialize rsa fields\n"
 		"    show <devpath>                    "
@@ -588,6 +603,8 @@ usage(int code)
 			"Raw hammer2 media dump for freemap\n"
 		"    volhdr <devpath>                  "
 			"Raw hammer2 media dump for the volume header(s)\n"
+		"    volume-list [<path>...]           "
+			"List volumes\n"
 		"    setcomp <comp[:level]> <path>...  "
 			"Set comp algo {none, autozero, lz4, zlib} & level\n"
 		"    setcheck <check> <path>...        "

@@ -29,7 +29,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <err.h>
-#include <assert.h>
+#include <uuid/uuid.h>
 #include <vfs/hammer/hammer_disk.h>
 
 #include "../../lib/libc/string/util.h"
@@ -39,13 +39,7 @@
 static hammer_volume_ondisk_t
 read_ondisk(FILE *fp)
 {
-	hammer_volume_ondisk_t ondisk;
-
-	ondisk = read_buf(fp, 0, sizeof(*ondisk));
-	if (ondisk == NULL)
-		err(1, "failed to read ondisk");
-
-	return (ondisk);
+	return (read_buf(fp, 0, sizeof(struct hammer_volume_ondisk)));
 }
 
 static int
@@ -59,30 +53,47 @@ test_ondisk(const hammer_volume_ondisk_t ondisk)
 	    ondisk->vol_signature != HAMMER_FSBUF_VOLUME_REV)
 		return (1);
 	if (ondisk->vol_rootvol != HAMMER_ROOT_VOLNO)
-		return (2);
+		return (1);
 	if (ondisk->vol_no < 0 || ondisk->vol_no > HAMMER_MAX_VOLUMES - 1)
-		return (3);
+		return (1);
 	if (ondisk->vol_count < 1 || ondisk->vol_count > HAMMER_MAX_VOLUMES)
-		return (4);
+		return (1);
 
 	if (count == 0) {
 		count = ondisk->vol_count;
-		assert(count != 0);
+		if (count == 0)
+			return (1);
 		memcpy(&fsid, &ondisk->vol_fsid, sizeof(fsid));
 		memcpy(&fstype, &ondisk->vol_fstype, sizeof(fstype));
 		strlcpy(label, ondisk->vol_label, sizeof(label));
 	} else {
 		if (ondisk->vol_count != count)
-			return (5);
-		if (memcmp(&ondisk->vol_fsid, &fsid, sizeof(fsid)))
-			return (6);
-		if (memcmp(&ondisk->vol_fstype, &fstype, sizeof(fstype)))
-			return (7);
+			return (1);
+		if (uuid_compare(ondisk->vol_fsid.uuid, fsid.uuid))
+			return (1);
+		if (uuid_compare(ondisk->vol_fstype.uuid, fstype.uuid))
+			return (1);
 		if (strcmp(ondisk->vol_label, label))
-			return (8);
+			return (1);
 	}
 
 	return (0);
+}
+
+static const char*
+extract_device_name(const char *devpath)
+{
+	const char *p;
+
+	p = strrchr(devpath, '/');
+	if (p) {
+		p++;
+		if (*p == 0)
+			p = NULL;
+	} else {
+		p = devpath;
+	}
+	return (p);
 }
 
 int
@@ -94,6 +105,8 @@ fstyp_hammer(FILE *fp, char *label, size_t size, const char *devpath)
 	const char *p;
 #endif
 	ondisk = read_ondisk(fp);
+	if (!ondisk)
+		goto fail;
 	if (ondisk->vol_no != HAMMER_ROOT_VOLNO)
 		goto fail;
 	if (ondisk->vol_count != 1)
@@ -107,15 +120,11 @@ fstyp_hammer(FILE *fp, char *label, size_t size, const char *devpath)
 	 */
 #ifdef HAS_DEVPATH
 	/* Add device name to help support multiple autofs -media mounts. */
-	p = strrchr(devpath, '/');
-	if (p) {
-		p++;
-		if (*p == 0)
-			strlcpy(label, ondisk->vol_label, size);
-		else
-			snprintf(label, size, "%s_%s", ondisk->vol_label, p);
-	} else
-		snprintf(label, size, "%s_%s", ondisk->vol_label, devpath);
+	p = extract_device_name(devpath);
+	if (p)
+		snprintf(label, size, "%s_%s", ondisk->vol_label, p);
+	else
+		strlcpy(label, ondisk->vol_label, size);
 #else
 	strlcpy(label, ondisk->vol_label, size);
 #endif
@@ -128,20 +137,23 @@ fail:
 static int
 test_volume(const char *volpath)
 {
-	hammer_volume_ondisk_t ondisk;
+	hammer_volume_ondisk_t ondisk = NULL;
 	FILE *fp;
 	int volno = -1;
 
 	if ((fp = fopen(volpath, "r")) == NULL)
-		err(1, "failed to open %s", volpath);
+		goto fail;
 
 	ondisk = read_ondisk(fp);
-	fclose(fp);
+	if (!ondisk)
+		goto fail;
 	if (test_ondisk(ondisk))
 		goto fail;
 
 	volno = ondisk->vol_no;
 fail:
+	if (fp)
+		fclose(fp);
 	free(ondisk);
 	return (volno);
 }
@@ -150,8 +162,8 @@ static int
 __fsvtyp_hammer(const char *blkdevs, char *label, size_t size, int partial)
 {
 	hammer_volume_ondisk_t ondisk = NULL;
-	FILE *fp;
-	char *dup, *p, *volpath, x[HAMMER_MAX_VOLUMES];
+	FILE *fp = NULL;
+	char *dup = NULL, *p, *volpath, *rootvolpath, x[HAMMER_MAX_VOLUMES];
 	int i, volno, error = 1;
 
 	if (!blkdevs)
@@ -162,6 +174,7 @@ __fsvtyp_hammer(const char *blkdevs, char *label, size_t size, int partial)
 	p = dup;
 
 	volpath = NULL;
+	rootvolpath = NULL;
 	volno = -1;
 	while (p) {
 		volpath = p;
@@ -169,19 +182,23 @@ __fsvtyp_hammer(const char *blkdevs, char *label, size_t size, int partial)
 			*p++ = '\0';
 		if ((volno = test_volume(volpath)) == -1)
 			break;
-		assert(volno >= 0);
-		assert(volno < HAMMER_MAX_VOLUMES);
+		if (volno < 0 || volno >= HAMMER_MAX_VOLUMES)
+			goto fail;
 		x[volno]++;
+		if (volno == HAMMER_ROOT_VOLNO)
+			rootvolpath = volpath;
 	}
 
-	if (!volpath)
-		err(1, "invalid path %s", blkdevs);
+	/* If no rootvolpath, proceed only if partial mode with volpath. */
+	if (rootvolpath)
+		volpath = rootvolpath;
+	else if (!partial || !volpath)
+		goto fail;
 	if ((fp = fopen(volpath, "r")) == NULL)
-		err(1, "failed to open %s", volpath);
+		goto fail;
 	ondisk = read_ondisk(fp);
-	fclose(fp);
-
-	free(dup);
+	if (!ondisk)
+		goto fail;
 
 	if (volno == -1)
 		goto fail;
@@ -200,11 +217,18 @@ __fsvtyp_hammer(const char *blkdevs, char *label, size_t size, int partial)
 		if (x[i] != 0)
 			goto fail;
 success:
-	/* XXX autofs -media mount can't handle multiple mounts */
-	strlcpy(label, ondisk->vol_label, size);
+	/* Add device name to help support multiple autofs -media mounts. */
+	p = (char*)extract_device_name(volpath);
+	if (p)
+		snprintf(label, size, "%s_%s", ondisk->vol_label, p);
+	else
+		strlcpy(label, ondisk->vol_label, size);
 	error = 0;
 fail:
+	if (fp)
+		fclose(fp);
 	free(ondisk);
+	free(dup);
 	return (error);
 }
 

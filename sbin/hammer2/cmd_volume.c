@@ -1,5 +1,7 @@
 /*
- * Copyright (c) 2011-2012 The DragonFly Project.  All rights reserved.
+ * Copyright (c) 2020 Tomohiro Kusumi <tkusumi@netbsd.org>
+ * Copyright (c) 2020 The DragonFly Project
+ * All rights reserved.
  *
  * This code is derived from software contributed to The DragonFly Project
  * by Matthew Dillon <dillon@dragonflybsd.org>
@@ -32,47 +34,73 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/types.h>
-#include <sys/stat.h> // before <sys/dfly.h>, <sys/tree.h>, <sys/dmsg.h>
-#include <netdb.h> // before <sys/dfly.h>, <sys/tree.h>, <sys/dmsg.h>
-#include <sys/queue.h>
-#include <sys/tree.h>
-#include <sys/socket.h>
-#include <sys/dmsg.h>
-#include <sys/poll.h>
-#include <sys/uio.h>
-#include <sys/dfly.h>
+#include "hammer2.h"
 
-#include <netinet/in.h>
-#include <netinet/ip.h>
-#include <netinet/tcp.h>
-#include <arpa/inet.h>
+int
+cmd_volume_list(int ac, char **av)
+{
+	hammer2_ioc_volume_list_t vollist;
+	hammer2_ioc_volume_t *entry;
+	int fd, i, j, n, w, all = 0, ecode = 0;
 
-#include <assert.h>
-#include <fcntl.h>
-#include <pthread.h>
-#include <libutil.h>
+	if (ac == 1 && av[0] == NULL) {
+		av = get_hammer2_mounts(&ac);
+		all = 1;
+	}
+	vollist.volumes = calloc(HAMMER2_MAX_VOLUMES, sizeof(*vollist.volumes));
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
-#include <uuid/uuid.h>
-#include <time.h>
+	for (i = 0; i < ac; ++i) {
+		if (i)
+			printf("\n");
+		if (ac > 1 || all)
+			printf("%s\n", av[i]);
+		if ((fd = hammer2_ioctl_handle(av[i])) < 0) {
+			ecode = 1;
+			goto failed;
+		}
 
-#include <openssl/rsa.h>	/* public/private key functions */
-#include <openssl/pem.h>	/* public/private key file load */
-#include <openssl/err.h>
-#include <openssl/evp.h>	/* aes_256_cbc functions */
+		vollist.nvolumes = HAMMER2_MAX_VOLUMES;
+		if (ioctl(fd, HAMMER2IOC_VOLUME_LIST, &vollist) < 0) {
+			perror("ioctl");
+			close(fd);
+			ecode = 1;
+			goto failed;
+		}
 
-#include <machine/atomic.h>
-#include <byteswap.h>
+		w = 0;
+		for (j = 0; j < vollist.nvolumes; ++j) {
+			entry = &vollist.volumes[j];
+			n = (int)strlen(entry->path);
+			if (n > w)
+				w = n;
+		}
 
-#include "dmsg.h"
+		if (QuietOpt > 0) {
+			for (j = 0; j < vollist.nvolumes; ++j) {
+				entry = &vollist.volumes[j];
+				printf("%s\n", entry->path);
+			}
+		} else {
+			printf("version %d\n", vollist.version);
+			printf("@%s\n", vollist.pfs_name);
+			for (j = 0; j < vollist.nvolumes; ++j) {
+				entry = &vollist.volumes[j];
+				printf("volume%-2d %-*.*s %s",
+				       entry->id, w, w, entry->path,
+				       sizetostr(entry->size));
+				if (VerboseOpt > 0)
+					printf(" 0x%016jx 0x%016jx",
+					       (intmax_t)entry->offset,
+					       (intmax_t)entry->size);
+				printf("\n");
+			}
+		}
+		close(fd);
+	}
+failed:
+	free(vollist.volumes);
+	if (all)
+		put_hammer2_mounts(ac, av);
 
-/*
- * Define prototypes here to prevent conflict with hammer2.h.
- * The real problem is that there is no userspace header for these two.
- */
-uint32_t iscsi_crc32(const void *buf, size_t size);
-uint32_t iscsi_crc32_ext(const void *buf, size_t size, uint32_t ocrc);
+	return (ecode);
+}

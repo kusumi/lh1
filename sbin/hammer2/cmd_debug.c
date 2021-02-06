@@ -38,9 +38,10 @@
 #include <openssl/sha.h>
 
 #define GIG	(1024LL*1024*1024)
-#define arysize(ary)	(sizeof(ary) / sizeof((ary)[0]))
+#define nitems(ary)	(sizeof(ary) / sizeof((ary)[0]))
 
 static int show_tab = 2;
+static int show_depth = -1;
 
 static void shell_msghandler(dmsg_msg_t *msg, int unmanaged);
 static void shell_ttymsg(dmsg_iocom_t *iocom);
@@ -379,8 +380,8 @@ cmd_debugspan(const char *hostname)
  *				    SHOW				*
  ************************************************************************/
 
-static void show_volhdr(hammer2_volume_data_t *voldata, int fd, int bi);
-static void show_bref(hammer2_volume_data_t *voldata, int fd, int tab,
+static void show_volhdr(hammer2_volume_data_t *voldata, int bi);
+static void show_bref(hammer2_volume_data_t *voldata, int tab,
 			int bi, hammer2_blockref_t *bref, int norecurse);
 static void tabprintf(int tab, const char *ctl, ...);
 
@@ -389,6 +390,23 @@ static hammer2_off_t TotalAccum64[4];
 static hammer2_off_t TotalUnavail;
 static hammer2_off_t TotalFreemap;
 
+static
+hammer2_off_t
+get_next_volume(hammer2_volume_data_t *voldata, hammer2_off_t volu_loff)
+{
+	hammer2_off_t ret = -1;
+	int i;
+
+	for (i = 0; i < HAMMER2_MAX_VOLUMES; ++i) {
+		hammer2_off_t tmp = voldata->volu_loff[i];
+		if (tmp > volu_loff) {
+			ret = tmp;
+			break;
+		}
+	}
+	return ret;
+}
+
 int
 cmd_show(const char *devpath, int which)
 {
@@ -396,6 +414,7 @@ cmd_show(const char *devpath, int which)
 	hammer2_blockref_t best;
 	hammer2_media_data_t media;
 	hammer2_media_data_t best_media;
+	hammer2_off_t off, volu_loff, next_volu_loff = 0;
 	int fd;
 	int i;
 	int best_i;
@@ -411,13 +430,18 @@ cmd_show(const char *devpath, int which)
 		if (errno || show_tab < 0 || show_tab > 8)
 			show_tab = 2;
 	}
-
-	fd = open(devpath, O_RDONLY);
-	if (fd < 0) {
-		perror("open");
-		return 1;
+	env = getenv("HAMMER2_SHOW_DEPTH");
+	if (env != NULL) {
+		show_depth = (int)strtol(env, NULL, 0);
+		if (errno || show_depth < 0)
+			show_depth = -1;
 	}
 
+	hammer2_init_volumes(devpath, 1);
+next_volume:
+	volu_loff = next_volu_loff;
+	next_volu_loff = -1;
+	printf("%s\n", hammer2_get_volume_path(volu_loff));
 	/*
 	 * Show the tree using the best volume header.
 	 * -vvv will show the tree for all four volume headers.
@@ -428,7 +452,9 @@ cmd_show(const char *devpath, int which)
 	for (i = 0; i < HAMMER2_NUM_VOLHDRS; ++i) {
 		bzero(&broot, sizeof(broot));
 		broot.data_off = (i * HAMMER2_ZONE_BYTES64) | HAMMER2_PBUFRADIX;
-		lseek(fd, broot.data_off & ~HAMMER2_OFF_MASK_RADIX, SEEK_SET);
+		off = broot.data_off & ~HAMMER2_OFF_MASK_RADIX;
+		fd = hammer2_get_volume_fd(volu_loff);
+		lseek(fd, off, SEEK_SET);
 		if (read(fd, &media, HAMMER2_PBUFSIZE) ==
 		    (ssize_t)HAMMER2_PBUFSIZE) {
 			broot.mirror_tid = media.voldata.mirror_tid;
@@ -444,38 +470,50 @@ cmd_show(const char *devpath, int which)
 				switch(which) {
 				case 0:
 					broot.type = HAMMER2_BREF_TYPE_VOLUME;
-					show_bref(&media.voldata, fd, 0,
-						  i, &broot, 0);
+					show_bref(&media.voldata, 0, i, &broot,
+						  0);
 					break;
 				case 1:
 					broot.type = HAMMER2_BREF_TYPE_FREEMAP;
-					show_bref(&media.voldata, fd, 0,
-						  i, &broot, 0);
+					show_bref(&media.voldata, 0, i, &broot,
+						  0);
 					break;
 				default:
-					show_volhdr(&media.voldata, fd, i);
+					show_volhdr(&media.voldata, i);
+					if (i == 0)
+						next_volu_loff = get_next_volume(&media.voldata, volu_loff);
 					break;
 				}
-				printf("\n");
+				if (i != HAMMER2_NUM_VOLHDRS - 1)
+					printf("\n");
 			}
 		}
 	}
+	if (next_volu_loff != (hammer2_off_t)-1) {
+		printf("---------------------------------------------\n");
+		goto next_volume;
+	}
+
 	if (VerboseOpt < 3) {
 		switch(which) {
 		case 0:
 			best.type = HAMMER2_BREF_TYPE_VOLUME;
-			show_bref(&best_media.voldata, fd, 0, best_i, &best, 0);
+			show_bref(&best_media.voldata, 0, best_i, &best, 0);
 			break;
 		case 1:
 			best.type = HAMMER2_BREF_TYPE_FREEMAP;
-			show_bref(&best_media.voldata, fd, 0, best_i, &best, 0);
+			show_bref(&best_media.voldata, 0, best_i, &best, 0);
 			break;
 		default:
-			show_volhdr(&best_media.voldata, fd, best_i);
+			show_volhdr(&best_media.voldata, best_i);
+			next_volu_loff = get_next_volume(&best_media.voldata, volu_loff);
+			if (next_volu_loff != (hammer2_off_t)-1) {
+				printf("---------------------------------------------\n");
+				goto next_volume;
+			}
 			break;
 		}
 	}
-	close(fd);
 
 	if (which == 1 && VerboseOpt < 3) {
 		printf("Total unallocated storage:   %6.3fGiB (%6.3fGiB in 64KB chunks)\n",
@@ -492,16 +530,18 @@ cmd_show(const char *devpath, int which)
 		printf("Total freemap storage:       %6.3fGiB\n",
 		       (double)TotalFreemap / GIG);
 	}
+	hammer2_cleanup_volumes();
 
 	return 0;
 }
 
 static void
-show_volhdr(hammer2_volume_data_t *voldata, int fd, int bi)
+show_volhdr(hammer2_volume_data_t *voldata, int bi)
 {
 	uint32_t i;
 	char *str;
 	char *name;
+	char *buf;
 
 	printf("\nVolume header %d {\n", bi);
 	printf("    magic          0x%016jx\n", (intmax_t)voldata->magic);
@@ -523,6 +563,8 @@ show_volhdr(hammer2_volume_data_t *voldata, int fd, int bi)
 	printf("    copyid         %d\n", voldata->copyid);
 	printf("    freemap_vers   %d\n", voldata->freemap_version);
 	printf("    peer_type      %d\n", voldata->peer_type);
+	printf("    volu_id        %d\n", voldata->volu_id);
+	printf("    nvolumes       %d\n", voldata->nvolumes);
 
 	str = NULL;
 	hammer2_uuid_to_str(&voldata->fsid, &str);
@@ -554,13 +596,15 @@ show_volhdr(hammer2_volume_data_t *voldata, int fd, int bi)
 	printf("    reserved0080   0x%016jx\n", voldata->reserved0080);
 	printf("    reserved0088   0x%016jx\n", voldata->reserved0088);
 	printf("    freemap_tid    0x%016jx\n", voldata->freemap_tid);
-	for (i = 0; i < arysize(voldata->reserved00A0); ++i) {
+	printf("    bulkfree_tid   0x%016jx\n", voldata->bulkfree_tid);
+	for (i = 0; i < nitems(voldata->reserved00A0); ++i) {
 		printf("    reserved00A0/%u 0x%016jx\n",
 		       i, voldata->reserved00A0[0]);
 	}
+	printf("    total_size     0x%016jx\n", voldata->total_size);
 
 	printf("    copyexists    ");
-	for (i = 0; i < arysize(voldata->copyexists); ++i)
+	for (i = 0; i < nitems(voldata->copyexists); ++i)
 		printf(" 0x%02x", voldata->copyexists[i]);
 	printf("\n");
 
@@ -574,7 +618,7 @@ show_volhdr(hammer2_volume_data_t *voldata, int fd, int bi)
 	 *	 CRCs.
 	 */
 	printf("\n");
-	for (i = 0; i < arysize(voldata->icrc_sects); ++i) {
+	for (i = 0; i < nitems(voldata->icrc_sects); ++i) {
 		printf("    icrc_sects[%u]  ", i);
 		switch(i) {
 		case HAMMER2_VOL_ICRC_SECT0:
@@ -632,43 +676,56 @@ show_volhdr(hammer2_volume_data_t *voldata, int fd, int bi)
 	printf("\n");
 	printf("    sroot_blockset {\n");
 	for (i = 0; i < HAMMER2_SET_COUNT; ++i) {
-		show_bref(voldata, fd, 16, i,
+		show_bref(voldata, 16, i,
 			  &voldata->sroot_blockset.blockref[i], 2);
-	        printf("\n");
 	}
 	printf("    }\n");
 
 	printf("    freemap_blockset {\n");
 	for (i = 0; i < HAMMER2_SET_COUNT; ++i) {
-		show_bref(voldata, fd, 16, i,
+		show_bref(voldata, 16, i,
 			  &voldata->freemap_blockset.blockref[i], 2);
-	        printf("\n");
 	}
 	printf("    }\n");
+
+	buf = calloc(1, sizeof(voldata->volu_loff));
+	if (bcmp(buf, voldata->volu_loff, sizeof(voldata->volu_loff))) {
+		printf("\n");
+		for (i = 0; i < HAMMER2_MAX_VOLUMES; ++i) {
+			hammer2_off_t loff = voldata->volu_loff[i];
+			if (loff != (hammer2_off_t)-1)
+				printf("    volu_loff[%d]   0x%016jx\n", i, loff);
+		}
+	}
+	free(buf);
 
 	printf("}\n");
 }
 
 static void
-show_bref(hammer2_volume_data_t *voldata, int fd, int tab,
-	  int bi, hammer2_blockref_t *bref, int norecurse)
+show_bref(hammer2_volume_data_t *voldata, int tab, int bi,
+	  hammer2_blockref_t *bref, int norecurse)
 {
 	hammer2_media_data_t media;
 	hammer2_blockref_t *bscan;
 	hammer2_off_t tmp;
-	int i, bcount, namelen, failed, obrace;
+	int i, bcount, namelen, failed, obrace, fd;
 	int type_pad;
 	size_t bytes;
 	const char *type_str;
 	char *str = NULL;
 	uint32_t cv;
 	uint64_t cv64;
+	static int init_tab = -1;
 
 	SHA256_CTX hash_ctx;
 	union {
 		uint8_t digest[SHA256_DIGEST_LENGTH];
 		uint64_t digest64[SHA256_DIGEST_LENGTH/8];
 	} u;
+
+	if (init_tab == -1)
+		init_tab = tab;
 
 	bytes = (bref->data_off & HAMMER2_OFF_MASK_RADIX);
 	if (bytes)
@@ -680,19 +737,21 @@ show_bref(hammer2_volume_data_t *voldata, int fd, int tab,
 		size_t boff;
 
 		io_off = bref->data_off & ~HAMMER2_OFF_MASK_RADIX;
-		io_base = io_off & ~(hammer2_off_t)(HAMMER2_MINIOSIZE - 1);
+		io_base = io_off & ~(hammer2_off_t)(HAMMER2_LBUFSIZE - 1);
 		boff = io_off - io_base;
 
-		io_bytes = HAMMER2_MINIOSIZE;
+		io_bytes = HAMMER2_LBUFSIZE;
 		while (io_bytes + boff < bytes)
 			io_bytes <<= 1;
 
 		if (io_bytes > sizeof(media)) {
-			printf("(bad block size %zd)\n", bytes);
+			printf("(bad block size %zu)\n", bytes);
 			return;
 		}
 		if (bref->type != HAMMER2_BREF_TYPE_DATA || VerboseOpt >= 1) {
-			lseek(fd, io_base, SEEK_SET);
+			fd = hammer2_get_volume_fd(io_off);
+			lseek(fd, io_base - hammer2_get_volume_offset(io_base),
+			      SEEK_SET);
 			if (read(fd, &media, io_bytes) != (ssize_t)io_bytes) {
 				printf("(media read failed)\n");
 				return;
@@ -744,15 +803,15 @@ show_bref(hammer2_volume_data_t *voldata, int fd, int tab,
 	if (QuietOpt > 0) {
 		tabprintf(tab,
 			  "%s.%-3d %016jx %016jx/%-2d "
-			  "mir=%016jx mod=%016jx leafcnt=%d ",
+			  "vol=%d mir=%016jx mod=%016jx leafcnt=%d ",
 			  type_str, bi, (intmax_t)bref->data_off,
 			  (intmax_t)bref->key, (intmax_t)bref->keybits,
+			  hammer2_get_volume_id(bref->data_off),
 			  (intmax_t)bref->mirror_tid,
 			  (intmax_t)bref->modify_tid,
 			  bref->leaf_count);
-		tab += show_tab;
 	} else {
-		tabprintf(tab, "%s.%-3d%*.*s 0x%016jx 0x%016jx/%-2d ",
+		tabprintf(tab, "%s.%-3d%*.*s %016jx %016jx/%-2d ",
 			  type_str, bi, type_pad, type_pad, "",
 			  (intmax_t)bref->data_off,
 			  (intmax_t)bref->key, (intmax_t)bref->keybits);
@@ -760,7 +819,8 @@ show_bref(hammer2_volume_data_t *voldata, int fd, int tab,
 			printf("\n");
 			tabprintf(tab + 13, "");
 		}
-		printf("mir=%016jx mod=%016jx lfcnt=%d ",
+		printf("vol=%d mir=%016jx mod=%016jx lfcnt=%d ",
+		       hammer2_get_volume_id(bref->data_off),
 		       (intmax_t)bref->mirror_tid, (intmax_t)bref->modify_tid,
 		       bref->leaf_count);
 		if (/*norecurse > 1 && */ (bcount || bref->flags ||
@@ -871,6 +931,8 @@ show_bref(hammer2_volume_data_t *voldata, int fd, int tab,
 
 	switch(bref->type) {
 	case HAMMER2_BREF_TYPE_EMPTY:
+		if (norecurse)
+			printf("\n");
 		obrace = 0;
 		break;
 	case HAMMER2_BREF_TYPE_DIRENT:
@@ -900,7 +962,12 @@ show_bref(hammer2_volume_data_t *voldata, int fd, int tab,
 		tabprintf(tab, "filename \"%*.*s\"\n",
 			  namelen, namelen, media.ipdata.filename);
 		tabprintf(tab, "version  %d\n", media.ipdata.meta.version);
-		tabprintf(tab, "pfs_st   %d\n", media.ipdata.meta.pfs_subtype);
+		if ((media.ipdata.meta.op_flags & HAMMER2_OPFLAG_PFSROOT) ||
+		    media.ipdata.meta.pfs_type == HAMMER2_PFSTYPE_SUPROOT) {
+			tabprintf(tab, "pfs_st   %d (%s)\n",
+				  media.ipdata.meta.pfs_subtype,
+				  hammer2_pfssubtype_to_str(media.ipdata.meta.pfs_subtype));
+		}
 		tabprintf(tab, "uflags   0x%08x\n",
 			  media.ipdata.meta.uflags);
 		if (media.ipdata.meta.rmajor || media.ipdata.meta.rminor) {
@@ -1062,7 +1129,7 @@ skip_data:
 			hammer2_off_t data_off = bref->key +
 				i * HAMMER2_FREEMAP_LEVEL0_SIZE;
 			if (data_off >= voldata->aux_end &&
-			    data_off < voldata->volu_size) {
+			    data_off < hammer2_get_total_size()) {
 				int j;
 				for (j = 0; j < 4; ++j)
 					CountBlocks(&media.bmdata[i], j,
@@ -1083,9 +1150,12 @@ skip_data:
 	 * direct children to help with debugging, but go no further than
 	 * that because they are probably garbage.
 	 */
-	for (i = 0; norecurse == 0 && i < bcount; ++i) {
-		if (bscan[i].type != HAMMER2_BREF_TYPE_EMPTY) {
-			show_bref(voldata, fd, tab, i, &bscan[i], failed);
+	if (show_depth == -1 || ((tab - init_tab) / show_tab) < show_depth) {
+		for (i = 0; norecurse == 0 && i < bcount; ++i) {
+			if (bscan[i].type != HAMMER2_BREF_TYPE_EMPTY) {
+				show_bref(voldata, tab, i, &bscan[i],
+				    failed);
+			}
 		}
 	}
 	tab -= show_tab;
@@ -1170,18 +1240,22 @@ int
 cmd_dumpchain(const char *path, u_int flags)
 {
 	int dummy = (int)flags;
+	int ecode = 0;
 	int fd;
 
 	fd = open(path, O_RDONLY);
 	if (fd >= 0) {
-		ioctl(fd, HAMMER2IOC_DEBUG_DUMP, &dummy);
+		if (ioctl(fd, HAMMER2IOC_DEBUG_DUMP, &dummy) < 0) {
+			fprintf(stderr, "%s: %s\n", path, strerror(errno));
+			ecode = 1;
+		}
 		close(fd);
 	} else {
 		fprintf(stderr, "unable to open %s\n", path);
+		ecode = 1;
 	}
-	return 0;
+	return ecode;
 }
-
 
 static
 void

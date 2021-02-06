@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011-2018 The DragonFly Project.  All rights reserved.
+ * Copyright (c) 2011-2020 The DragonFly Project.  All rights reserved.
  *
  * This code is derived from software contributed to The DragonFly Project
  * by Matthew Dillon <dillon@dragonflybsd.org>
@@ -38,9 +38,6 @@
 
 #include <linux/limits.h>
 
-#ifndef _SYS_IOCCOM_H_
-//#include <sys/ioccom.h>
-#endif
 #ifndef _VFS_HAMMER2_DISK_H_
 #include "hammer2_disk.h"
 #endif
@@ -99,7 +96,7 @@ struct hammer2_ioc_pfs {
 	uint64_t		reserved0018;
 	hammer2_uuid_t		pfs_fsid;	/* identifies PFS instance */
 	hammer2_uuid_t		pfs_clid;	/* identifies PFS cluster */
-	char			name[NAME_MAX+1]; /* device@name mtpt */
+	char			name[NAME_MAX+1]; /* PFS label */
 };
 
 typedef struct hammer2_ioc_pfs hammer2_ioc_pfs_t;
@@ -111,7 +108,7 @@ typedef struct hammer2_ioc_pfs hammer2_ioc_pfs_t;
  */
 struct hammer2_ioc_inode {
 	uint32_t		flags;
-	void			*kdata;
+	void			*unused;
 	hammer2_key_t		data_count;
 	hammer2_key_t		inode_count;
 	hammer2_inode_data_t	ip_data;
@@ -155,6 +152,41 @@ struct hammer2_ioc_destroy {
 typedef struct hammer2_ioc_destroy hammer2_ioc_destroy_t;
 
 /*
+ * Grow the filesystem.  If size is set to 0 H2 will auto-size to the
+ * partition it is in.  The caller can resize the partition, then issue
+ * the ioctl.
+ */
+struct hammer2_ioc_growfs {
+	hammer2_off_t		size;
+	int			modified;
+	int			unused01;
+	int			unusedary[14];
+};
+
+typedef struct hammer2_ioc_growfs hammer2_ioc_growfs_t;
+
+/*
+ * Ioctls to manage volumes
+ */
+struct hammer2_ioc_volume {
+	char			path[1024]; /* MAXPATHLEN */
+	int			id;
+	hammer2_off_t		offset;
+	hammer2_off_t		size;
+};
+
+typedef struct hammer2_ioc_volume hammer2_ioc_volume_t;
+
+struct hammer2_ioc_volume_list {
+	hammer2_ioc_volume_t	*volumes;
+	int			nvolumes;
+	int			version;
+	char			pfs_name[HAMMER2_INODE_MAXNAME];
+};
+
+typedef struct hammer2_ioc_volume_list hammer2_ioc_volume_list_t;
+
+/*
  * Ioctl list
  */
 
@@ -189,5 +221,7 @@ typedef struct hammer2_ioc_destroy hammer2_ioc_destroy_t;
 #define HAMMER2IOC_BULKFREE_ASYNC _IOWR('h', 93, struct hammer2_ioc_bulkfree)
 #define HAMMER2IOC_DESTROY	_IOWR('h', 94, struct hammer2_ioc_destroy)
 #define HAMMER2IOC_EMERG_MODE	_IOWR('h', 95, int)
+#define HAMMER2IOC_GROWFS	_IOWR('h', 96, struct hammer2_ioc_growfs)
+#define HAMMER2IOC_VOLUME_LIST	_IOWR('h', 97, struct hammer2_ioc_volume_list)
 
 #endif /* !_VFS_HAMMER2_IOCTL_H_ */
