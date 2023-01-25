@@ -32,7 +32,7 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/sysctl.h> // before <sys/dfly.h>
+//#include <sys/sysctl.h> // before <sys/dfly.h>
 #include "hammer_util.h"
 
 #include <linux/fs.h>

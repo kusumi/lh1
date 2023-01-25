@@ -19,7 +19,7 @@
 
 #include <sys/types.h>
 #include <sys/param.h>
-#include <sys/sysctl.h>
+//#include <sys/sysctl.h>
 
 #include <stdio.h>
 #include <string.h>

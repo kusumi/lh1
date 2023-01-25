@@ -1,37 +1,9 @@
-lh1 - Linux HAMMER (v0.1.13)
+lh1 - Linux HAMMER (v0.1.14)
 ===
 
 ## About
 
-+ HAMMER1/2 userspace utilities on Linux / x86_64.
-
-## Changes
-
-+ 2021.02.06 / v0.1.13 - Sync with DragonFly BSD.
-
-+ 2020.04.26 / v0.1.12 - Sync with DragonFly BSD.
-
-+ 2019.12.19 / v0.1.11 - Sync with DragonFly BSD.
-
-+ 2019.11.04 / v0.1.10 - Sync with DragonFly BSD.
-
-+ 2019.10.01 / v0.1.9 - Sync with DragonFly BSD.
-
-+ 2019.09.05 / v0.1.8 - Sync with DragonFly BSD.
-
-+ 2019.08.20 / v0.1.7 - Sync with DragonFly BSD.
-
-+ 2019.01.13 / v0.1.6 - Sync with DragonFly BSD.
-
-+ 2018.07.10 / v0.1.5 - HAMMER2 sbin/hammer2 added (not fully functional).
-
-+ 2018.06.17 / v0.1.4 - Sync with DragonFly BSD.
-
-+ 2018.02.17 / v0.1.3 - Sync with DragonFly BSD.
-
-+ 2017.10.12 / v0.1.2 - HAMMER2 sbin/newfs_hammer2 added.
-
-+ 2017.09.30 / v0.1.1 - HAMMER1 userspace code available, except for sbin/mount_hammer. hammer info command is dropped.
+HAMMER1/2 userspace utilities on Linux / x86_64
 
 ## Commands
 

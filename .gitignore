@@ -16,16 +16,16 @@ core*
 *.a
 
 # executable binaries
-sbin/hammer/hammer
-sbin/hammer/test_dupkey
-sbin/newfs_hammer/newfs_hammer
-sbin/mount_hammer/mount_hammer
-sbin/hammer2/hammer2
-sbin/newfs_hammer2/newfs_hammer2
-sbin/mount_hammer2/mount_hammer2
-sbin/fsck_hammer2/fsck_hammer2
-usr.bin/undo/undo
-usr.sbin/fstyp/fstyp
+src/sbin/hammer/hammer
+src/sbin/hammer/test_dupkey
+src/sbin/newfs_hammer/newfs_hammer
+src/sbin/mount_hammer/mount_hammer
+src/sbin/hammer2/hammer2
+src/sbin/newfs_hammer2/newfs_hammer2
+src/sbin/mount_hammer2/mount_hammer2
+src/sbin/fsck_hammer2/fsck_hammer2
+src/usr.bin/undo/undo
+src/usr.sbin/fstyp/fstyp
 
 # diff dragonfly lh1
 lh1.diff

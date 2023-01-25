@@ -53,7 +53,7 @@
 #include <sys/statfs.h>
 //#include <sys/ttycom.h>
 //#include <sys/endian.h>
-#include <sys/sysctl.h>
+//#include <sys/sysctl.h>
 //#include <sys/udev.h>
 //#include <sys/diskslice.h>
 //#include <sys/dtype.h>
