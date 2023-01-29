@@ -28,4 +28,4 @@ src/usr.bin/undo/undo
 src/usr.sbin/fstyp/fstyp
 
 # diff dragonfly lh1
-lh1.diff
+src/lh1.diff

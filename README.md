@@ -1,4 +1,4 @@
-lh1 - Linux HAMMER (v0.1.14)
+lh1 - Linux HAMMER (v0.2.0)
 ===
 
 ## About

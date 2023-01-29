@@ -43,6 +43,7 @@
 #include <string.h>
 #include <fstab.h>
 #include <assert.h>
+#include <errno.h>
 #include <err.h>
 
 #include <vfs/hammer2/hammer2_disk.h>
@@ -95,6 +96,10 @@ hammer2_uninstall_volume(hammer2_volume_t *vol)
 	hammer2_init_volume(vol);
 }
 
+/*
+ * Locate a valid volume header.  If any of the four volume headers is good,
+ * we have a valid volume header and choose the best one based on mirror_tid.
+ */
 static int
 hammer2_read_volume_header(int fd, const char *path,
 			   hammer2_volume_data_t *voldata)
@@ -113,54 +118,72 @@ hammer2_read_volume_header(int fd, const char *path,
 		if (lseek(fd, i * HAMMER2_ZONE_BYTES64, SEEK_SET) == -1)
 			break;
 		ret = read(fd, &vd, HAMMER2_PBUFSIZE);
-		if (ret == -1)
-			err(1, "read");
-		else if (ret != HAMMER2_PBUFSIZE)
-			errx(1, "%s #%d: failed to read", path, i);
+		if (ret == -1) {
+			fprintf(stderr, "%s #%d: read %s\n",
+				path, i, strerror(errno));
+			continue;
+		}
+		if (ret != HAMMER2_PBUFSIZE) {
+			fprintf(stderr, "%s #%d: read %s\n",
+				path, i, strerror(errno));
+			continue;
+		}
 
 		p = (const char*)&vd;
 		/* verify volume header magic */
 		if ((vd.magic != HAMMER2_VOLUME_ID_HBO) &&
-		    (vd.magic != HAMMER2_VOLUME_ID_ABO))
-			errx(1, "%s #%d: bad magic", path, i);
+		    (vd.magic != HAMMER2_VOLUME_ID_ABO)) {
+			fprintf(stderr, "%s #%d: bad magic\n", path, i);
+			continue;
+		}
 
 		if (vd.magic == HAMMER2_VOLUME_ID_ABO) {
 			/* XXX: Reversed-endianness filesystem */
-			errx(1, "%s #%d: reverse-endian filesystem detected",
-			     path, i);
+			fprintf(stderr,
+				"%s #%d: reverse-endian filesystem detected",
+				path, i);
+			continue;
 		}
 
 		/* verify volume header CRC's */
 		crc0 = vd.icrc_sects[HAMMER2_VOL_ICRC_SECT0];
 		crc1 = hammer2_icrc32(p + HAMMER2_VOLUME_ICRC0_OFF,
 				      HAMMER2_VOLUME_ICRC0_SIZE);
-		if (crc0 != crc1)
-			errx(1, "%s #%d: volume header crc mismatch sect0 %08x/%08x",
-			     path, i, crc0, crc1);
+		if (crc0 != crc1) {
+			fprintf(stderr,
+				"%s #%d: volume header crc mismatch "
+				"sect0 %08x/%08x\n",
+				path, i, crc0, crc1);
+			continue;
+		}
 
 		crc0 = vd.icrc_sects[HAMMER2_VOL_ICRC_SECT1];
 		crc1 = hammer2_icrc32(p + HAMMER2_VOLUME_ICRC1_OFF,
 				      HAMMER2_VOLUME_ICRC1_SIZE);
-		if (crc0 != crc1)
-			errx(1, "%s #%d: volume header crc mismatch sect1 %08x/%08x",
-			     path, i, crc0, crc1);
+		if (crc0 != crc1) {
+			fprintf(stderr,
+				"%s #%d: volume header crc mismatch "
+				"sect1 %08x/%08x",
+				path, i, crc0, crc1);
+			continue;
+		}
 
 		crc0 = vd.icrc_volheader;
 		crc1 = hammer2_icrc32(p + HAMMER2_VOLUME_ICRCVH_OFF,
 				      HAMMER2_VOLUME_ICRCVH_SIZE);
-		if (crc0 != crc1)
-			errx(1, "%s #%d: volume header crc mismatch vh %08x/%08x",
-			     path, i, crc0, crc1);
-
+		if (crc0 != crc1) {
+			fprintf(stderr,
+				"%s #%d: volume header crc mismatch "
+				"vh %08x/%08x",
+				path, i, crc0, crc1);
+			continue;
+		}
 		if (zone == -1 || mirror_tid < vd.mirror_tid) {
 			bcopy(&vd, voldata, sizeof(vd));
 			mirror_tid = vd.mirror_tid;
 			zone = i;
 		}
 	}
-
-	if (zone == -1)
-		errx(1, "%s has no valid volume headers", path);
 	return(zone);
 }
 
@@ -185,6 +208,7 @@ hammer2_add_volume(const char *path, int rdonly)
 	hammer2_volume_t *vol;
 	struct stat st;
 	int fd, i;
+	hammer2_uuid_t uuid;
 
 	fd = open(path, rdonly ? O_RDONLY : O_RDWR);
 	if (fd == -1)
@@ -201,7 +225,7 @@ hammer2_add_volume(const char *path, int rdonly)
 			errx(1, "%s has bad volume id %d", path, i);
 		vol = &fso.volumes[i];
 		if (vol->id != -1)
-			errx(1, "%s already initialized", path);
+			errx(1, "volume id %d already initialized", i);
 		/* all headers must have the same version, nvolumes and uuid */
 		if (!fso.nvolumes) {
 			fso.version = voldata.version;
@@ -215,13 +239,15 @@ hammer2_add_volume(const char *path, int rdonly)
 			if (fso.nvolumes != voldata.nvolumes)
 				errx(1, "Volume count mismatch %d vs %d",
 				     fso.nvolumes, voldata.nvolumes);
-			if (hammer2_uuid_compare(&fso.fsid, &voldata.fsid))
+			uuid = voldata.fsid;
+			if (hammer2_uuid_compare(&fso.fsid, &uuid))
 				hammer2_err_uuid_mismatch(&fso.fsid,
-							  &voldata.fsid,
+							  &uuid,
 							  "fsid");
-			if (hammer2_uuid_compare(&fso.fstype, &voldata.fstype))
+			uuid = voldata.fstype;
+			if (hammer2_uuid_compare(&fso.fstype, &uuid))
 				hammer2_err_uuid_mismatch(&fso.fstype,
-							  &voldata.fstype,
+							  &uuid,
 							  "fstype");
 		}
 		/* all per-volume tests passed */
@@ -229,7 +255,7 @@ hammer2_add_volume(const char *path, int rdonly)
 				       voldata.volu_loff[i], voldata.volu_size);
 		fso.total_size += vol->size;
 	} else {
-		errx(1, "Failed to read volume header");
+		errx(1, "No valid volume headers found!");
 	}
 }
 
@@ -281,6 +307,7 @@ hammer2_verify_volumes_common(const hammer2_ondisk_t *fsp)
 			     (intmax_t)vol->size);
 		/* check volume size vs block device size */
 		size = check_volume(vol->fd);
+		printf("checkvolu header %d %016jx/%016jx\n", i, vol->size, size);
 		if (vol->size > size)
 			errx(1, "%s's size 0x%016jx exceeds device size 0x%016jx",
 			     path, (intmax_t)vol->size, size);
@@ -305,8 +332,6 @@ hammer2_verify_volumes_1(hammer2_ondisk_t *fsp,
 	}
 	if (nvolumes != 1)
 		errx(1, "Only 1 volume supported");
-	if (fsp->nvolumes)
-		errx(1, "Volume count %d must be 0", fsp->nvolumes);
 	fsp->nvolumes = nvolumes; /* adjust with actual count */
 
 	/* check volume header */

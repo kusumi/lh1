@@ -40,12 +40,15 @@
 #define GIG	(1024LL*1024*1024)
 #define nitems(ary)	(sizeof(ary) / sizeof((ary)[0]))
 
+static int show_all_volume_headers = 0;
 static int show_tab = 2;
 static int show_depth = -1;
+static hammer2_tid_t show_min_mirror_tid = 0;
+static hammer2_tid_t show_min_modify_tid = 0;
 
 static void shell_msghandler(dmsg_msg_t *msg, int unmanaged);
 static void shell_ttymsg(dmsg_iocom_t *iocom);
-static void CountBlocks(hammer2_bmap_data_t *bmap, int value,
+static void count_blocks(hammer2_bmap_data_t *bmap, int value,
 		hammer2_off_t *accum16, hammer2_off_t *accum64);
 
 /************************************************************************
@@ -424,6 +427,12 @@ cmd_show(const char *devpath, int which)
 	memset(TotalAccum64, 0, sizeof(TotalAccum64));
 	TotalUnavail = TotalFreemap = 0;
 
+	env = getenv("HAMMER2_SHOW_ALL_VOLUME_HEADERS");
+	if (env != NULL) {
+		show_all_volume_headers = (int)strtol(env, NULL, 0);
+		if (errno)
+			show_all_volume_headers = 0;
+	}
 	env = getenv("HAMMER2_SHOW_TAB");
 	if (env != NULL) {
 		show_tab = (int)strtol(env, NULL, 0);
@@ -436,8 +445,21 @@ cmd_show(const char *devpath, int which)
 		if (errno || show_depth < 0)
 			show_depth = -1;
 	}
+	env = getenv("HAMMER2_SHOW_MIN_MIRROR_TID");
+	if (env != NULL) {
+		show_min_mirror_tid = (hammer2_tid_t)strtoull(env, NULL, 16);
+		if (errno)
+			show_min_mirror_tid = 0;
+	}
+	env = getenv("HAMMER2_SHOW_MIN_MODIFY_TID");
+	if (env != NULL) {
+		show_min_modify_tid = (hammer2_tid_t)strtoull(env, NULL, 16);
+		if (errno)
+			show_min_modify_tid = 0;
+	}
 
 	hammer2_init_volumes(devpath, 1);
+	int all_volume_headers = VerboseOpt >= 3 || show_all_volume_headers;
 next_volume:
 	volu_loff = next_volu_loff;
 	next_volu_loff = -1;
@@ -466,7 +488,7 @@ next_volume:
 			printf("Volume header %d: mirror_tid=%016jx\n",
 			       i, (intmax_t)broot.mirror_tid);
 
-			if (VerboseOpt >= 3) {
+			if (all_volume_headers) {
 				switch(which) {
 				case 0:
 					broot.type = HAMMER2_BREF_TYPE_VOLUME;
@@ -494,7 +516,7 @@ next_volume:
 		goto next_volume;
 	}
 
-	if (VerboseOpt < 3) {
+	if (!all_volume_headers) {
 		switch(which) {
 		case 0:
 			best.type = HAMMER2_BREF_TYPE_VOLUME;
@@ -542,6 +564,7 @@ show_volhdr(hammer2_volume_data_t *voldata, int bi)
 	char *str;
 	char *name;
 	char *buf;
+	hammer2_uuid_t uuid;
 
 	printf("\nVolume header %d {\n", bi);
 	printf("    magic          0x%016jx\n", (intmax_t)voldata->magic);
@@ -567,13 +590,15 @@ show_volhdr(hammer2_volume_data_t *voldata, int bi)
 	printf("    nvolumes       %d\n", voldata->nvolumes);
 
 	str = NULL;
-	hammer2_uuid_to_str(&voldata->fsid, &str);
+	uuid = voldata->fsid;
+	hammer2_uuid_to_str(&uuid, &str);
 	printf("    fsid           %s\n", str);
 	free(str);
 
 	str = NULL;
 	name = NULL;
-	hammer2_uuid_to_str(&voldata->fstype, &str);
+	uuid = voldata->fstype;
+	hammer2_uuid_to_str(&uuid, &str);
 	printf("    fstype         %s\n", str);
 	hammer2_uuid_addr_lookup(&voldata->fstype, &name);
 	if (name == NULL)
@@ -717,12 +742,24 @@ show_bref(hammer2_volume_data_t *voldata, int tab, int bi,
 	uint32_t cv;
 	uint64_t cv64;
 	static int init_tab = -1;
+	hammer2_uuid_t uuid;
 
 	SHA256_CTX hash_ctx;
 	union {
 		uint8_t digest[SHA256_DIGEST_LENGTH];
 		uint64_t digest64[SHA256_DIGEST_LENGTH/8];
 	} u;
+
+	/* omit if smaller than mininum mirror_tid threshold */
+	if (bref->mirror_tid < show_min_mirror_tid)
+		return;
+	/* omit if smaller than mininum modify_tid threshold */
+	if (bref->modify_tid < show_min_modify_tid) {
+		if (bref->modify_tid)
+			return;
+		else if (bref->type == HAMMER2_BREF_TYPE_INODE && !bref->leaf_count)
+			return;
+	}
 
 	if (init_tab == -1)
 		init_tab = tab;
@@ -837,8 +874,9 @@ show_bref(hammer2_volume_data_t *voldata, int tab, int bi,
 		printf("flags=%02x ", bref->flags);
 	if (bref->type == HAMMER2_BREF_TYPE_FREEMAP_NODE ||
 	    bref->type == HAMMER2_BREF_TYPE_FREEMAP_LEAF) {
-		printf("bigmask=%08x avail=%ld ",
-			bref->check.freemap.bigmask, bref->check.freemap.avail);
+		printf("bigmask=%08x avail=%ju ",
+			bref->check.freemap.bigmask,
+			(uintmax_t)bref->check.freemap.avail);
 	}
 
 	/*
@@ -984,10 +1022,12 @@ show_bref(hammer2_volume_data_t *voldata, int tab, int bi,
 			  hammer2_time64_to_str(media.ipdata.meta.atime, &str));
 		tabprintf(tab, "btime    %s\n",
 			  hammer2_time64_to_str(media.ipdata.meta.btime, &str));
+		uuid = media.ipdata.meta.uid;
 		tabprintf(tab, "uid      %s\n",
-			  hammer2_uuid_to_str(&media.ipdata.meta.uid, &str));
+			  hammer2_uuid_to_str(&uuid, &str));
+		uuid = media.ipdata.meta.gid;
 		tabprintf(tab, "gid      %s\n",
-			  hammer2_uuid_to_str(&media.ipdata.meta.gid, &str));
+			  hammer2_uuid_to_str(&uuid, &str));
 		tabprintf(tab, "type     %s\n",
 			  hammer2_iptype_to_str(media.ipdata.meta.type));
 		tabprintf(tab, "opflgs   0x%02x\n",
@@ -1030,12 +1070,12 @@ show_bref(hammer2_volume_data_t *voldata, int tab, int bi,
 				  hammer2_pfstype_to_str(media.ipdata.meta.pfs_type));
 			tabprintf(tab, "pfs_inum 0x%016jx\n",
 				  (uintmax_t)media.ipdata.meta.pfs_inum);
+			uuid = media.ipdata.meta.pfs_clid;
 			tabprintf(tab, "pfs_clid %s\n",
-				  hammer2_uuid_to_str(&media.ipdata.meta.pfs_clid,
-						      &str));
+				  hammer2_uuid_to_str(&uuid, &str));
+			uuid = media.ipdata.meta.pfs_fsid;
 			tabprintf(tab, "pfs_fsid %s\n",
-				  hammer2_uuid_to_str(&media.ipdata.meta.pfs_fsid,
-						      &str));
+				  hammer2_uuid_to_str(&uuid, &str));
 			tabprintf(tab, "pfs_lsnap_tid 0x%016jx\n",
 				  (uintmax_t)media.ipdata.meta.pfs_lsnap_tid);
 		}
@@ -1084,10 +1124,11 @@ show_bref(hammer2_volume_data_t *voldata, int tab, int bi,
 #if HAMMER2_BMAP_ELEMENTS != 8
 #error "cmd_debug.c: HAMMER2_BMAP_ELEMENTS expected to be 8"
 #endif
-			tabprintf(tab + 4, "%016jx %04d.%04x (avail=%7d) "
+			tabprintf(tab + 4, "%016jx %04d.%04x linear=%06x avail=%06x "
 				  "%016jx %016jx %016jx %016jx "
 				  "%016jx %016jx %016jx %016jx\n",
 				  data_off, i, media.bmdata[i].class,
+				  media.bmdata[i].linear,
 				  media.bmdata[i].avail,
 				  media.bmdata[i].bitmapq[0],
 				  media.bmdata[i].bitmapq[1],
@@ -1132,7 +1173,7 @@ skip_data:
 			    data_off < hammer2_get_total_size()) {
 				int j;
 				for (j = 0; j < 4; ++j)
-					CountBlocks(&media.bmdata[i], j,
+					count_blocks(&media.bmdata[i], j,
 						    &TotalAccum16[j],
 						    &TotalAccum64[j]);
 			} else
@@ -1171,8 +1212,8 @@ skip_data:
 
 static
 void
-CountBlocks(hammer2_bmap_data_t *bmap, int value,
-	    hammer2_off_t *accum16, hammer2_off_t *accum64)
+count_blocks(hammer2_bmap_data_t *bmap, int value,
+	     hammer2_off_t *accum16, hammer2_off_t *accum64)
 {
 	int i, j, bits;
 	hammer2_bitmap_t value16, value64;
@@ -1214,7 +1255,7 @@ cmd_hash(int ac, const char **av)
 
 	for (i = 0; i < ac; ++i) {
 		printf("%016jx %s\n",
-		       dirhash((const unsigned char*)av[i], strlen(av[i])),
+		       dirhash(av[i], strlen(av[i])),
 		       av[i]);
 	}
 	return(0);

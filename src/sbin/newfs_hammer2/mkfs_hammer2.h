@@ -1,9 +1,9 @@
 /*
- * Copyright (c) 2018 Tomohiro Kusumi.  All rights reserved.
- * Copyright (c) 2007 The DragonFly Project.  All rights reserved.
+ * Copyright (c) 2022 Tomohiro Kusumi <tkusumi@netbsd.org>
+ * Copyright (c) 2011-2022 The DragonFly Project.  All rights reserved.
  *
  * This code is derived from software contributed to The DragonFly Project
- * by Matthew Dillon <dillon@backplane.com>
+ * by Matthew Dillon <dillon@dragonflybsd.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -33,41 +33,45 @@
  * SUCH DAMAGE.
  */
 
-#ifndef _SYS_DFLY_H_
-#define _SYS_DFLY_H_
+#ifndef NEWFS_HAMMER2_H_
+#define NEWFS_HAMMER2_H_
 
-#include <sys/cdefs.h>
+#include <vfs/hammer2/hammer2_disk.h>
 
-#define LH1_VERSION_STRING	"v0.2.0"
+#include <uuid/uuid.h>
 
-#if __GNUC_PREREQ(2, 7)
-/*
- * Note that some Linux headers have a struct field named __unused,
- * which conflicts with __unused directive in DragonFly.
- * e.g. <linux/sysctl.h> included by <sys/sysctl.h>.
- * e.g. <bits/stat.h> included by <sys/stat.h>.
- *
- * These macros used in lh1 won't be renamed to minimize diff from DragonFly.
- * <sys/dfly.h> should be included after such headers that cause conflicts.
- */
-#define __unused	__attribute__((unused))
-#define __dead2		__attribute__((__noreturn__))
-#define __packed	__attribute__((__packed__))
-#else
-#define __unused
-#define __dead2
-#define __packed
-#endif
+#include "hammer2_subs.h"
 
-#if !__GNUC_PREREQ(2, 7)
-#define	__printflike(fmtarg, firstvararg)
-#elif __GNUC_PREREQ(3, 0)
-#define	__printflike(fmtarg, firstvararg) \
-            __attribute__((__nonnull__(fmtarg), \
-			  __format__ (__printf__, fmtarg, firstvararg)))
-#else
-#define	__printflike(fmtarg, firstvararg) \
-	    __attribute__((__format__ (__printf__, fmtarg, firstvararg)))
-#endif
+#define HAMMER2_LABEL_NONE	0
+#define HAMMER2_LABEL_BOOT	1
+#define HAMMER2_LABEL_ROOT	2
+#define HAMMER2_LABEL_DATA	3
 
-#endif /* !_SYS_DFLY_H_ */
+#define MAXLABELS	HAMMER2_SET_COUNT
+
+typedef struct {
+	int Hammer2Version;
+	hammer2_uuid_t Hammer2_FSType;	/* filesystem type id for HAMMER2 */
+	hammer2_uuid_t Hammer2_VolFSID;	/* unique filesystem id in volu header */
+	hammer2_uuid_t Hammer2_SupCLID;	/* PFS cluster id in super-root inode */
+	hammer2_uuid_t Hammer2_SupFSID;	/* PFS unique id in super-root inode */
+	hammer2_uuid_t Hammer2_PfsCLID[MAXLABELS];
+	hammer2_uuid_t Hammer2_PfsFSID[MAXLABELS];
+	hammer2_off_t BootAreaSize;
+	hammer2_off_t AuxAreaSize;
+	char *Label[MAXLABELS];
+	int NLabels;
+	int CompType; /* default LZ4 */
+	int CheckType; /* default XXHASH64 */
+	int DefaultLabelType;
+	int DebugOpt;
+} hammer2_mkfs_options_t;
+
+void hammer2_mkfs_init(hammer2_mkfs_options_t *opt);
+void hammer2_mkfs_cleanup(hammer2_mkfs_options_t *opt);
+
+int64_t getsize(const char *str, int64_t minval, int64_t maxval, int pw);
+
+void hammer2_mkfs(int ac, char **av, hammer2_mkfs_options_t *opt);
+
+#endif /* !NEWFS_HAMMER2_H_ */

@@ -118,7 +118,6 @@ typedef struct dmsg_handshake dmsg_handshake_t;
 #define DMSG_CRYPTO_GCM_IV_FIXED_SIZE	4
 #define DMSG_CRYPTO_GCM_IV_SIZE		12
 #define DMSG_CRYPTO_GCM_KEY_SIZE	32
-#define DMSG_CRYPTO_GCM_TAG_SIZE	16
 
 #define DMSG_CRYPTO_ALGO_GCM_IDX	0
 
@@ -334,14 +333,16 @@ typedef struct dmsg_iocom dmsg_iocom_t;
  * Crypto algorithm table and related typedefs.
  */
 typedef int (*algo_init_fn)(dmsg_ioq_t *, char *, int, char *, int, int);
+typedef void (*algo_uninit_fn)(dmsg_ioq_t *);
 typedef int (*algo_enc_fn)(dmsg_ioq_t *, char *, char *, int, int *);
 typedef int (*algo_dec_fn)(dmsg_ioq_t *, char *, char *, int, int *);
 
 struct crypto_algo {
 	const char	*name;
 	int		keylen;
-	int		taglen;
+	int		unused01;
 	algo_init_fn	init;
+	algo_uninit_fn	uninit;
 	algo_enc_fn	enc_chunk;
 	algo_dec_fn	dec_chunk;
 };
@@ -451,6 +452,7 @@ dmsg_state_t *dmsg_findspan(const char *label);
  */
 void dmsg_crypto_setup(void);
 void dmsg_crypto_negotiate(dmsg_iocom_t *iocom);
+void dmsg_crypto_terminate(dmsg_iocom_t *iocom);
 void dmsg_crypto_decrypt(dmsg_iocom_t *iocom, dmsg_ioq_t *ioq);
 int dmsg_crypto_encrypt(dmsg_iocom_t *iocom, dmsg_ioq_t *ioq,
 			struct iovec *iov, int n, size_t *nactp);

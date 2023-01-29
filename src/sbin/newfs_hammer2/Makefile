@@ -1,6 +1,6 @@
 PROG=	newfs_hammer2
 
-SRCS=	$(PROG).c
+SRCS=	$(PROG).c mkfs_hammer2.c
 
 OBJS := $(SRCS:.c=.o)
 

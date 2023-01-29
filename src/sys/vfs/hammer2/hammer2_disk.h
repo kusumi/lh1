@@ -113,6 +113,8 @@
 #define HAMMER2_IND_RADIX_MAX	HAMMER2_PBUFRADIX
 #define HAMMER2_IND_COUNT_MIN	(HAMMER2_IND_BYTES_MIN / \
 				 sizeof(hammer2_blockref_t))
+#define HAMMER2_IND_COUNT_NOM	(HAMMER2_IND_BYTES_NOM / \
+				 sizeof(hammer2_blockref_t))
 #define HAMMER2_IND_COUNT_MAX	(HAMMER2_IND_BYTES_MAX / \
 				 sizeof(hammer2_blockref_t))
 
@@ -384,7 +386,7 @@
  * representing INDEX_SIZE bytes worth of storage per element.
  */
 
-typedef uint64_t			hammer2_bitmap_t;
+typedef uint64_t hammer2_bitmap_t;
 
 #define HAMMER2_BMAP_ALLONES		((hammer2_bitmap_t)-1)
 #define HAMMER2_BMAP_ELEMENTS		8
@@ -430,14 +432,12 @@ typedef struct hammer2_uuid {
 } hammer2_uuid_t;
 
 /*
- * Miscellanious ranges (all are unsigned).
+ * Miscellaneous ranges (all are unsigned).
  */
 #define HAMMER2_TID_MIN		1ULL
 #define HAMMER2_TID_MAX		0xFFFFFFFFFFFFFFFFULL
 #define HAMMER2_KEY_MIN		0ULL
 #define HAMMER2_KEY_MAX		0xFFFFFFFFFFFFFFFFULL
-#define HAMMER2_OFFSET_MIN	0ULL
-#define HAMMER2_OFFSET_MAX	0xFFFFFFFFFFFFFFFFULL
 
 /*
  * HAMMER2 data offset special cases and masking.
@@ -468,8 +468,10 @@ typedef struct hammer2_uuid {
 #define HAMMER2_DIRHASH_VISIBLE	0x8000000000000000ULL
 #define HAMMER2_DIRHASH_USERMSK	0x7FFFFFFFFFFFFFFFULL
 #define HAMMER2_DIRHASH_LOMASK	0x0000000000007FFFULL
+#if 0
 #define HAMMER2_DIRHASH_HIMASK	0xFFFFFFFFFFFF0000ULL
 #define HAMMER2_DIRHASH_FORCED	0x0000000000008000ULL	/* bit forced on */
+#endif
 
 #define HAMMER2_SROOT_KEY	0x0000000000000000ULL	/* volume to sroot */
 #define HAMMER2_BOOT_KEY	0xd9b36ce135528000ULL	/* sroot to BOOT PFS */
@@ -720,13 +722,12 @@ typedef struct hammer2_blockref hammer2_blockref_t;
 #define HAMMER2_BREF_TYPE_VOLUME	255	/* pseudo-type */
 
 #define HAMMER2_BREF_FLAG_PFSROOT	0x01	/* see also related opflag */
-#define HAMMER2_BREF_FLAG_ZERO		0x02	/* NO LONGER USED */
+#define HAMMER2_BREF_FLAG_UNUSED	0x02
 #define HAMMER2_BREF_FLAG_EMERG_MIP	0x04	/* emerg modified-in-place */
 
 /*
- * Encode/decode check mode and compression mode for
- * bref.methods.  The compression level is not encoded in
- * bref.methods.
+ * Encode/decode check mode and compression mode for bref.methods.
+ * The compression level is not encoded in bref.methods.
  */
 #define HAMMER2_ENC_CHECK(n)		(((n) & 15) << 4)
 #define HAMMER2_DEC_CHECK(n)		(((n) >> 4) & 15)
@@ -741,11 +742,6 @@ typedef struct hammer2_blockref hammer2_blockref_t;
 #define HAMMER2_CHECK_FREEMAP		5
 
 #define HAMMER2_CHECK_DEFAULT		HAMMER2_CHECK_XXHASH64
-
-/* user-specifiable check modes only */
-#define HAMMER2_CHECK_STRINGS		{ "none", "disabled", "crc32", \
-					  "xxhash64", "sha192" }
-#define HAMMER2_CHECK_STRINGS_COUNT	5
 
 /*
  * Encode/decode check or compression algorithm request in
@@ -762,14 +758,6 @@ typedef struct hammer2_blockref hammer2_blockref_t;
 #define HAMMER2_COMP_ZLIB		3
 
 #define HAMMER2_COMP_NEWFS_DEFAULT	HAMMER2_COMP_LZ4
-#define HAMMER2_COMP_STRINGS		{ "none", "autozero", "lz4", "zlib" }
-#define HAMMER2_COMP_STRINGS_COUNT	4
-
-/*
- * Passed to hammer2_chain_create(), causes methods to be inherited from
- * parent.
- */
-#define HAMMER2_METH_DEFAULT		-1
 
 /*
  * HAMMER2 block references are collected into sets of 4 blockrefs.  These
@@ -1010,7 +998,7 @@ struct hammer2_inode_meta {
 	 * (not yet implemented)
 	 */
 	uint64_t	decrypt_check;	/* 00E0 decryption validator */
-	hammer2_off_t	reservedE0[3];	/* 00E8/F0/F8 */
+	hammer2_off_t	reservedE8[3];	/* 00E8/F0/F8 */
 } __packed;
 
 typedef struct hammer2_inode_meta hammer2_inode_meta_t;
@@ -1082,7 +1070,7 @@ typedef struct hammer2_inode_data hammer2_inode_data_t;
 
 #define HAMMER2_PFSTRAN_NONE		0x00	/* no transition in progress */
 #define HAMMER2_PFSTRAN_CACHE		0x10
-#define HAMMER2_PFSTRAN_UNMUSED20	0x20
+#define HAMMER2_PFSTRAN_UNUSED20	0x20
 #define HAMMER2_PFSTRAN_SLAVE		0x30
 #define HAMMER2_PFSTRAN_SOFT_SLAVE	0x40
 #define HAMMER2_PFSTRAN_SOFT_MASTER	0x50
@@ -1219,7 +1207,7 @@ struct hammer2_volume_data {
 	 * cannot be reused until it is 100% removed from the hierarchy.
 	 */
 	uint32_t	copyexists[8];		/* 00C8-00E7 copy exists bmap */
-	char		reserved0140[248];	/* 00E8-01DF */
+	char		reserved00E8[248];	/* 00E8-01DF */
 
 	/*
 	 * 32 bit CRC array at the end of the first 512 byte sector.
@@ -1273,7 +1261,7 @@ struct hammer2_volume_data {
 	/*
 	 * Remaining sections are reserved for future use.
 	 */
-	char		reserved0400[0x6FFC];	/* 9000-FFFB reserved */
+	char		reserved9000[0x6FFC];	/* 9000-FFFB reserved */
 
 	/*
 	 * icrc on entire volume header

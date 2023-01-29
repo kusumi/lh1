@@ -173,9 +173,8 @@ atomic_readandclear_int(volatile u_int *addr)
  *				has already been acquired.
  * atomic_poll_release_int(P)
  *
- * These support the NDIS driver and are also used for IPIQ interlocks
- * between cpus.  Both the acquisition and release must be 
- * cache-synchronizing instructions.
+ * These are used for IPIQ interlocks between CPUs.
+ * Both the acquisition and release must be cache-synchronizing instructions.
  */
 
 static __inline int
@@ -645,7 +644,7 @@ atomic_testandset_long(volatile u_long *p, u_long v)
 	"	" MPLOCKED "		"
 	"	btsq	%2,%1 ;		"
 	"	setc	%0 ;		"
-	"# atomic_testandset_int"
+	"# atomic_testandset_long"
 	: "=q" (res),			/* 0 */
 	  "+m" (*p)			/* 1 */
 	: "Ir" (v & 0x3f)		/* 2 */
@@ -679,7 +678,7 @@ atomic_testandclear_long(volatile u_long *p, u_long v)
 	"	" MPLOCKED "		"
 	"	btrq	%2,%1 ;		"
 	"	setc	%0 ;		"
-	"# atomic_testandclear_int"
+	"# atomic_testandclear_long"
 	: "=q" (res),			/* 0 */
 	  "+m" (*p)			/* 1 */
 	: "Ir" (v & 0x3f)		/* 2 */

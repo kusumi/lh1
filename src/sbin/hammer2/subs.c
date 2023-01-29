@@ -296,23 +296,13 @@ check_volume(int fd)
  * Also, the iscsi crc code is used instead of the old crc32 code.
  */
 hammer2_key_t
-dirhash(const unsigned char *name, size_t len)
+dirhash(const char *aname, size_t len)
 {
-	const unsigned char *aname = name;
 	uint32_t crcx;
 	uint64_t key;
 	size_t i;
 	size_t j;
 
-	/*
-	 * Filesystem version 6 or better will create directories
-	 * using the ALG1 dirhash.  This hash breaks the filename
-	 * up into domains separated by special characters and
-	 * hashes each domain independently.
-	 *
-	 * We also do a simple sub-sort using the first character
-	 * of the filename in the top 5-bits.
-	 */
 	key = 0;
 
 	/*
@@ -342,7 +332,7 @@ dirhash(const unsigned char *name, size_t len)
 	/*
 	 * l16 - crc of entire filename
 	 *
-	 * This crc reduces degenerate hash collision conditions
+	 * This crc reduces degenerate hash collision conditions.
 	 */
 	crcx = hammer2_icrc32(aname, len);
 	crcx = crcx ^ (crcx << 16);

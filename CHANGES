@@ -1,3 +1,7 @@
+v0.2.0
+======
+- Sync with DragonFly BSD
+
 v0.1.14
 ======
 - Fix build after <sys/sysctl.h> removal in glibc
